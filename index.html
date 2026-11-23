@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BTC 주봉 40MA 리테스트 시그널</title>
+<style>
+  :root{--bg:#131722;--fg:#d1d4dc;--mut:#787b86;--line:#2a2e39}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Malgun Gothic",sans-serif}
+  header,#tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line)}
+  h1{font-size:16px;margin:0 8px 0 0}
+  select,input,button{background:#1e222d;color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:4px 8px;font:inherit}
+  button{cursor:pointer}
+  button.on{background:#2962ff;border-color:#2962ff;color:#fff}
+  input{width:60px}
+  #tools span{color:var(--mut)}
+  #status{padding:6px 14px;color:var(--mut);border-bottom:1px solid var(--line)}
+  #status b{color:var(--fg)}
+  #wrap{position:relative;height:calc(100vh - 215px);min-height:360px;overflow:hidden}
+  #chart,#ov{position:absolute;left:0;top:0;width:100%;height:100%}
+  #ov{z-index:5;pointer-events:none;touch-action:none}
+  footer{padding:6px 14px;color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>BTC · 주봉 40MA 리테스트</h1>
+  <label>봉 <select id="tf"><option value="1h">1시간</option><option value="4h">4시간</option><option value="1d" selected>1일</option><option value="1w">1주</option></select></label>
+  <label>신호 ±% <input id="pct" type="number" value="2" step="0.1"></label>
+  <label>리테스트 오차 % <input id="tol" type="number" value="0.5" step="0.1"></label>
+  <button id="go">적용</button>
+</header>
+<div id="tools"><span>그리기</span></div>
+<div id="status">불러오는 중…</div>
+<div id="wrap"><div id="chart"></div><canvas id="ov"></canvas></div>
+<footer>데이터: 바이낸스 BTCUSDT (1분마다 갱신) · 시간은 한국시간 · 도구를 고른 뒤 차트를 드래그해서 그립니다 (수평선·수직선은 클릭) · 학습·참고용이며 투자 권유가 아닙니다.</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const N = 40;
+const APIS = ["https://data-api.binance.vision/api/v3/klines", "https://api.binance.com/api/v3/klines"];
+const PAGES = {"1h": 3, "4h": 1, "1d": 1, "1w": 1};
+const STEPS = {"1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800};
+const KST = t => new Date(t * 1000).toLocaleString("ko-KR", {timeZone: "Asia/Seoul", hour12: false});
+const LABEL = {idle: "대기", up_wait: "돌파 후 리테스트 대기", up_retest: "리테스트 완료 · BUY 대기", dn_wait: "이탈 후 리테스트 대기", dn_retest: "리테스트 실패 확인 · SELL 대기"};
+const wrap = document.getElementById("wrap");
+
+const chart = LightweightCharts.createChart(document.getElementById("chart"), {
+  layout: {background: {color: "#131722"}, textColor: "#d1d4dc"},
+  grid: {vertLines: {color: "#1e222d"}, horzLines: {color: "#1e222d"}},
+  localization: {timeFormatter: KST},
+  timeScale: {timeVisible: true, secondsVisible: false},
+  autoSize: true
+});
+const candles = chart.addCandlestickSeries({upColor: "#26a69a", downColor: "#ef5350", borderVisible: false, wickUpColor: "#26a69a", wickDownColor: "#ef5350"});
+const maLine = chart.addLineSeries({color: "#ff9800", lineWidth: 2, title: "주봉 40MA", priceLineVisible: false});
+const ts = chart.timeScale();
+
+async function getKlines(interval, pages) {
+  let all = [], end = null;
+  for (let i = 0; i < pages; i++) {
+    let data = null;
+    for (const api of APIS) {
+      try {
+        const r = await fetch(`${api}?symbol=BTCUSDT&interval=${interval}&limit=1000` + (end ? `&endTime=${end}` : ""));
+        if (r.ok) { data = await r.json(); break; }
+      } catch (e) {}
+    }
+    if (!data || !data.length) break;
+    all = data.concat(all);
+    end = data[0][0] - 1;
+  }
+  return all.map(k => ({t: Math.floor(k[0] / 1000), o: +k[1], h: +k[2], l: +k[3], c: +k[4], ct: k[6]}));
+}
+
+const avg = a => a.reduce((x, y) => x + y, 0) / a.length;
+
+function replay(cs, wk, pct, tol) {
+  let phase = "idle", ref = null;
+  const ma = [], marks = [], now = Date.now();
+  for (const k of cs) {
+    const closes = wk.filter(w => w.ct <= k.ct).map(w => w.c);
+    const isWc = wk.some(w => w.ct === k.ct);
+    const series = isWc ? closes : closes.concat(k.c);
+    if (series.length < N + 1) continue;
+    const m = avg(series.slice(-N));
+    ma.push({time: k.t, value: m});
+    if (k.ct >= now) continue;
+    if (isWc) {
+      const pm = avg(closes.slice(-N - 1, -1)), pc = closes[closes.length - 2], lc = closes[closes.length - 1];
+      if (lc > m && pc <= pm) { phase = "up_wait"; ref = null; }
+      else if (lc < m && pc >= pm) { phase = "dn_wait"; ref = null; }
+      else if (phase.startsWith("up") && lc < m) { phase = "idle"; ref = null; }
+      else if (phase.startsWith("dn") && lc > m) { phase = "idle"; ref = null; }
+    }
+    if (phase === "up_wait" && k.l <= m * (1 + tol)) { phase = "up_retest"; ref = k.l; }
+    else if (phase === "up_retest") {
+      ref = Math.min(ref, k.l);
+      if (k.c >= ref * (1 + pct) && k.c > m) {
+        marks.push({time: k.t, position: "belowBar", color: "#26a69a", shape: "arrowUp", text: "BUY"});
+        phase = "idle"; ref = null;
+      }
+    } else if (phase === "dn_wait" && k.h >= m * (1 - tol)) { phase = "dn_retest"; ref = k.h; }
+    else if (phase === "dn_retest") {
+      ref = Math.max(ref, k.h);
+      if (k.c <= ref * (1 - pct) && k.c < m) {
+        marks.push({time: k.t, position: "aboveBar", color: "#ef5350", shape: "arrowDown", text: "SELL"});
+        phase = "idle"; ref = null;
+      }
+    }
+  }
+  return {ma, marks, phase};
+}
+
+let first = true, cs = [], STEP = 86400;
+async function load() {
+  const tf = document.getElementById("tf").value;
+  const pct = +document.getElementById("pct").value / 100;
+  const tol = +document.getElementById("tol").value / 100;
+  const st = document.getElementById("status");
+  try {
+    const [wk, data] = await Promise.all([getKlines("1w", 1), getKlines(tf, PAGES[tf])]);
+    cs = data; STEP = STEPS[tf];
+    const r = replay(cs, wk, pct, tol);
+    candles.setData(cs.map(k => ({time: k.t, open: k.o, high: k.h, low: k.l, close: k.c})));
+    maLine.setData(r.ma);
+    candles.setMarkers(r.marks);
+    const last = cs[cs.length - 1], lm = r.ma[r.ma.length - 1];
+    const lastSig = r.marks.length ? r.marks[r.marks.length - 1] : null;
+    st.innerHTML = `현재가 <b>${last.c.toLocaleString()}</b> · 주봉 40MA <b>${Math.round(lm.value).toLocaleString()}</b> · 상태 <b>${LABEL[r.phase]}</b>` +
+      (lastSig ? ` · 최근 신호 <b>${lastSig.text}</b> (${KST(lastSig.time)})` : " · 표시된 구간에 신호 없음");
+    if (first) { ts.fitContent(); first = false; }
+  } catch (e) {
+    st.textContent = "데이터를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.";
+  }
+}
+document.getElementById("go").onclick = () => { first = true; load(); };
+document.getElementById("tf").onchange = () => { first = true; load(); };
+
+/* ===== 그리기 도구 ===== */
+const cv = document.getElementById("ov"), cx = cv.getContext("2d");
+let tool = null, tmp = null, drawings = [];
+try { drawings = JSON.parse(localStorage.getItem("btc40d") || "[]"); } catch (e) {}
+const save = () => { try { localStorage.setItem("btc40d", JSON.stringify(drawings)); } catch (e) {} };
+
+const X = t => cs.length ? ts.logicalToCoordinate((t - cs[0].t) / STEP) : null;
+const Y = p => candles.priceToCoordinate(p);
+const T = x => { const l = ts.coordinateToLogical(x); return l == null || !cs.length ? null : cs[0].t + l * STEP; };
+const P = y => candles.coordinateToPrice(y);
+const fmt = p => Math.round(p).toLocaleString();
+const pts = d => [X(d.a.t), Y(d.a.p), d.b ? X(d.b.t) : null, d.b ? Y(d.b.p) : null];
+const line = (a, b, c, d) => { cx.beginPath(); cx.moveTo(a, b); cx.lineTo(c, d); cx.stroke(); };
+
+/* 수정: 캔버스 CSS 크기는 100%로 고정하고, 내부 해상도만 화면 배율(dpr)에 맞춤 */
+function fit() {
+  const w = wrap.clientWidth, h = wrap.clientHeight, dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+new ResizeObserver(fit).observe(wrap);
+window.addEventListener("resize", fit);
+
+const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+const FIBC = ["#9e9e9e", "#f44336", "#ff9800", "#4caf50", "#26a69a", "#00bcd4", "#9e9e9e"];
+
+function shape(d, W, H) {
+  const [x1, y1, x2, y2] = pts(d);
+  cx.lineWidth = 1.5; cx.strokeStyle = "#4fc3f7"; cx.fillStyle = "#4fc3f7"; cx.font = "12px sans-serif";
+  if (d.k === "hline") { if (y1 != null) { line(0, y1, W, y1); cx.fillText(fmt(d.a.p), 6, y1 - 4); } return; }
+  if (d.k === "vline") { if (x1 != null) line(x1, 0, x1, H); return; }
+  if ([x1, y1, x2, y2].some(v => v == null)) return;
+  if (d.k === "trend") line(x1, y1, x2, y2);
+  else if (d.k === "rect") {
+    cx.fillStyle = "rgba(41,98,255,.15)"; cx.fillRect(x1, y1, x2 - x1, y2 - y1); cx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+  } else if (d.k === "fib") {
+    const xa = Math.min(x1, x2), xb = Math.max(x1, x2);
+    FIB.forEach((r, i) => {
+      const p = d.b.p + (d.a.p - d.b.p) * r, y = Y(p);
+      if (y == null) return;
+      cx.strokeStyle = cx.fillStyle = FIBC[i];
+      line(xa, y, xb, y); cx.fillText(`${r} (${fmt(p)})`, xa + 4, y - 3);
+    });
+  } else if (d.k === "measure") {
+    const up = d.b.p >= d.a.p, col = up ? "38,166,154" : "239,83,80";
+    cx.fillStyle = `rgba(${col},.18)`; cx.strokeStyle = `rgb(${col})`;
+    cx.fillRect(x1, y1, x2 - x1, y2 - y1); cx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    const pc = (d.b.p - d.a.p) / d.a.p * 100, bars = Math.round((d.b.t - d.a.t) / STEP);
+    cx.fillStyle = `rgb(${col})`;
+    cx.fillText(`${pc >= 0 ? "+" : ""}${pc.toFixed(2)}% (${fmt(d.b.p - d.a.p)}) · ${bars}봉`, Math.min(x1, x2) + 4, up ? Math.min(y1, y2) - 6 : Math.max(y1, y2) + 14);
+  }
+}
+
+function render() {
+  requestAnimationFrame(render);
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  cx.clearRect(0, 0, w, h);
+  const W = ts.width(), H = h - (ts.height ? ts.height() : 28);
+  cx.save(); cx.beginPath(); cx.rect(0, 0, W, H); cx.clip();
+  for (const d of tmp ? drawings.concat([tmp]) : drawings) shape(d, W, H);
+  cx.restore();
+}
+
+function hit(d, x, y) {
+  const [x1, y1, x2, y2] = pts(d), tol = 8;
+  if (d.k === "hline") return y1 != null && Math.abs(y - y1) < tol;
+  if (d.k === "vline") return x1 != null && Math.abs(x - x1) < tol;
+  if ([x1, y1, x2, y2].some(v => v == null)) return false;
+  if (d.k === "trend") {
+    const dx = x2 - x1, dy = y2 - y1, l2 = dx * dx + dy * dy || 1;
+    const u = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / l2));
+    return Math.hypot(x - (x1 + u * dx), y - (y1 + u * dy)) < tol;
+  }
+  return x >= Math.min(x1, x2) - tol && x <= Math.max(x1, x2) + tol && y >= Math.min(y1, y2) - tol && y <= Math.max(y1, y2) + tol;
+}
+
+function setTool(t) {
+  tool = t; tmp = null;
+  cv.style.pointerEvents = t ? "auto" : "none";
+  cv.style.cursor = t === "erase" ? "pointer" : "crosshair";
+  document.querySelectorAll("#tools button[data-t]").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+}
+const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+
+cv.onpointerdown = e => {
+  e.preventDefault();
+  const [x, y] = pos(e);
+  if (tool === "erase") { for (let i = drawings.length - 1; i >= 0; i--) if (hit(drawings[i], x, y)) { drawings.splice(i, 1); save(); break; } return; }
+  const t = T(x), p = P(y);
+  if (t == null || p == null) return;
+  if (tool === "hline" || tool === "vline") { drawings.push({k: tool, a: {t, p}}); save(); setTool(null); return; }
+  tmp = {k: tool, a: {t, p}, b: {t, p}};
+  cv.setPointerCapture(e.pointerId);
+};
+cv.onpointermove = e => {
+  if (!tmp) return;
+  const [x, y] = pos(e), t = T(x), p = P(y);
+  if (t != null && p != null) tmp.b = {t, p};
+};
+cv.onpointerup = () => {
+  if (!tmp) return;
+  const dist = Math.abs(X(tmp.a.t) - X(tmp.b.t)) + Math.abs(Y(tmp.a.p) - Y(tmp.b.p));
+  if (dist > 4) { drawings.push(tmp); save(); }
+  tmp = null; setTool(null);
+};
+
+const bar = document.getElementById("tools");
+[["trend", "추세선"], ["hline", "수평선"], ["vline", "수직선"], ["fib", "피보나치"], ["rect", "사각형"], ["measure", "재기"], ["erase", "지우개"]].forEach(([k, n]) => {
+  const b = document.createElement("button");
+  b.textContent = n; b.dataset.t = k;
+  b.onclick = () => setTool(tool === k ? null : k);
+  bar.appendChild(b);
+});
+[["되돌리기", () => { drawings.pop(); save(); }], ["전체삭제", () => { if (drawings.length && confirm("그린 선을 모두 지울까요?")) { drawings = []; save(); } }]].forEach(([n, f]) => {
+  const b = document.createElement("button");
+  b.textContent = n; b.onclick = f; bar.appendChild(b);
+});
+
+fit(); render(); load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>
