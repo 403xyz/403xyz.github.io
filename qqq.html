@@ -193,4 +193,10 @@ cv.onpointerup=()=>{if(!cur)return;D.push(cur);cur=null;sv();setTool(null);redra
  const b=document.createElement('button');b.textContent=n;b.onclick=fn;$('tools').append(b)});
 
 // ---------- 시작 ----------
-$('tf').onchange=()=>{tf=$('tf').value;first=true;setT
+$('tf').onchange=()=>{tf=$('tf').value;first=true;setTool(null);ld();render();load()};
+$('apply').onclick=$('lvl').oninput=$('first').onchange=render;
+ld();load();
+setInterval(()=>{if(!document.hidden)load()},30000);
+</script>
+</body>
+</html>
