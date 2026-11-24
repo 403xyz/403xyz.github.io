@@ -38,8 +38,9 @@
 <div id="chart"></div>
 <script>
   // ===== 설정 =====
-  const VIX_LEVEL = 30;       // 이 값을 넘으면 BUY
-  const ONLY_FIRST_DAY = true; // true: 30 처음 넘은 날만 / false: 30 넘은 모든 날
+  const VIX_LEVEL = 30;         // 이 값을 넘으면 BUY
+  const ONLY_FIRST_DAY = true;  // true: 30 처음 넘은 날만 / false: 30 넘은 모든 날
+  const REFRESH_SEC = 60;       // 실시간 갱신 간격(초)
 
   const chart = LightweightCharts.createChart(document.getElementById('chart'), {
     autoSize: true,
@@ -49,34 +50,75 @@
     timeScale: { borderVisible: false },
   });
   const series = chart.addLineSeries({ color: '#2962ff', lineWidth: 2 });
+  const info = document.getElementById('info');
+
+  let baseRows = [];
+  let firstDraw = true;
+  let liveText = '';
+
+  function render(rows) {
+    series.setData(rows.map(r => ({ time: r.time, value: r.close })));
+    const markers = [];
+    let prevOver = false;
+    for (const r of rows) {
+      const over = r.vix > VIX_LEVEL;
+      if (over && (!ONLY_FIRST_DAY || !prevOver)) {
+        markers.push({ time: r.time, position: 'belowBar', shape: 'arrowUp', color: '#e91e63', text: 'BUY' });
+      }
+      prevOver = over;
+    }
+    series.setMarkers(markers);
+    if (firstDraw) { chart.timeScale().fitContent(); firstDraw = false; }
+    const last = rows[rows.length - 1];
+    info.textContent = `BUY ${markers.length}번 | ${liveText || '마지막 데이터: ' + last.time} | QQQ ${last.close} | VIX ${last.vix}`;
+  }
+
+  // 야후 시세 (CORS 때문에 무료 중계 서버를 순서대로 시도)
+  const PROXIES = [
+    u => 'https://corsproxy.io/?' + encodeURIComponent(u),
+    u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+  ];
+  async function yahoo(symbol) {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
+      encodeURIComponent(symbol) + '?interval=1d&range=5d';
+    let lastErr;
+    for (const p of PROXIES) {
+      try {
+        const r = await fetch(p(url));
+        const j = await r.json();
+        const m = j.chart.result[0].meta;
+        return { price: m.regularMarketPrice, time: m.regularMarketTime };
+      } catch (e) { lastErr = e; }
+    }
+    throw lastErr;
+  }
+
+  async function live() {
+    try {
+      const [q, v] = await Promise.all([yahoo('QQQ'), yahoo('^VIX')]);
+      const day = new Date(q.time * 1000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      const rows = baseRows.slice();
+      const row = { time: day, close: +q.price.toFixed(2), vix: +v.price.toFixed(2) };
+      if (rows.length && rows[rows.length - 1].time === day) rows[rows.length - 1] = row;
+      else if (!rows.length || day > rows[rows.length - 1].time) rows.push(row);
+      const t = new Date(q.time * 1000).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
+      liveText = `실시간 ${t}(KST)`;
+      render(rows);
+    } catch (e) {
+      liveText = '실시간 실패(저장된 데이터 표시)';
+      if (baseRows.length) render(baseRows);
+    }
+  }
 
   fetch('data.json?t=' + Date.now())
     .then(r => r.json())
     .then(rows => {
-      series.setData(rows.map(r => ({ time: r.time, value: r.close })));
-
-      const markers = [];
-      let prevOver = false;
-      for (const r of rows) {
-        const over = r.vix > VIX_LEVEL;
-        if (over && (!ONLY_FIRST_DAY || !prevOver)) {
-          markers.push({
-            time: r.time, position: 'belowBar', shape: 'arrowUp',
-            color: '#e91e63', text: 'BUY',
-          });
-        }
-        prevOver = over;
-      }
-      series.setMarkers(markers);
-      chart.timeScale().fitContent();
-
-      const last = rows[rows.length - 1];
-      document.getElementById('info').textContent =
-        `BUY ${markers.length}번 | 마지막 데이터: ${last.time} | QQQ ${last.close} | VIX ${last.vix}`;
+      baseRows = rows;
+      render(baseRows);
+      live();
+      setInterval(live, REFRESH_SEC * 1000);
     })
-    .catch(e => {
-      document.getElementById('info').textContent = 'data.json을 못 불러왔어: ' + e;
-    });
+    .catch(e => { info.textContent = 'data.json을 못 불러왔어: ' + e; });
 </script>
 </body>
 </html>
