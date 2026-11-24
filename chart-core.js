@@ -68,7 +68,7 @@
       '<div class="stat"><span>52주 고점</span><b id="sHigh">-</b></div>'+
       '<div class="stat"><span>고점 대비</span><b id="sDD">-</b></div>'+
       '<div class="stat"><span>'+VOLNAME+'</span><b id="sVix">-</b></div>'+
-      '<div class="stat sig"><span>시그</span><b id="sSig">-</b></div>'+
+      '<div class="stat sig"><span>시그널</span><b id="sSig">-</b></div>'+
     '</div>'+
     '<div class="rules">'+tierHTML(1)+tierHTML(2)+tierHTML(3)+manualHTML+'</div>'+
     '<div class="toolbar">'+
