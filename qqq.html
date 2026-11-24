@@ -59,4 +59,135 @@ const chart=LightweightCharts.createChart($('chart'),{autoSize:true,
  grid:{vertLines:{color:'#161b24'},horzLines:{color:'#161b24'}},
  rightPriceScale:{borderColor:'#2a3140',scaleMargins:{top:.05,bottom:.3}},
  timeScale:{borderColor:'#2a3140'}});
-const cs=chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,wickUpColor:'#26a6
+const cs=chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,wickUpColor:'#26a69a',wickDownColor:'#ef5350'});
+const vs=chart.addLineSeries({color:'#ffb300',lineWidth:1,priceScaleId:'vix',priceLineVisible:false});
+chart.priceScale('vix').applyOptions({scaleMargins:{top:.78,bottom:.02}});
+const TS=chart.timeScale();
+
+// ---------- 데이터 ----------
+function key(t,i){
+ if(i==='60m')return t+32400; // 한국시간으로 표시
+ return Date.parse(new Date(t*1000).toLocaleDateString('en-CA',{timeZone:'America/New_York'}))/1000;
+}
+async function get(sym,i,r){
+ const j=await(await fetch(`${WORKER}/?s=${encodeURIComponent(sym)}&i=${i}&r=${r}`)).json();
+ const x=j.chart.result[0],q=x.indicators.quote[0],o=[],n=x.timestamp.length-1;
+ x.timestamp.forEach((t,k)=>{
+  // 진행 중인 마지막 봉은 종가가 비어 오므로 현재가로 채움
+  const c=q.close[k]??(k===n?x.meta.regularMarketPrice:null);
+  if(c!=null)o.push({t:key(t,i),o:q.open[k]??c,h:Math.max(q.high[k]??c,c),l:Math.min(q.low[k]??c,c),c});
+ });
+ return o;
+}
+async function refresh(){
+ const i=CFG[tf],S=store[i]||(store[i]={q:new Map(),v:new Map()});
+ const r=S.q.size?'5d':FULL[i];
+ const [q,v]=await Promise.all([get('QQQ',i,r),get('^VIX',i,r)]);
+ q.forEach(b=>S.q.set(b.t,b));v.forEach(b=>S.v.set(b.t,b.c));
+ stamp=new Date().toLocaleTimeString('ko-KR');
+}
+const mon=t=>t-((new Date(t*1000).getUTCDay()+6)%7)*86400;
+function rows(){
+ const S=store[CFG[tf]];if(!S)return[];let lv=0;
+ const a=[...S.q.values()].sort((x,y)=>x.t-y.t).map(b=>{if(S.v.has(b.t))lv=S.v.get(b.t);return{...b,x:lv}});
+ if(tf==='1h'||tf==='1d')return a;
+ const o=[];let g=null,n=0,pt=0;
+ for(const b of a){
+  const w=tf==='1w',nw=w?(!g||mon(b.t)!==g.k):(!g||n>=4||b.t-pt>7200);
+  if(nw){g={k:w?mon(b.t):0,t:w?mon(b.t):b.t,o:b.o,h:b.h,l:b.l,c:b.c,x:b.x};o.push(g);n=1}
+  else{g.h=Math.max(g.h,b.h);g.l=Math.min(g.l,b.l);g.c=b.c;g.x=Math.max(g.x,b.x);n++}
+  pt=b.t;
+ }
+ return o;
+}
+const fmt=t=>new Date(t*1000).toISOString().slice(0,intra()?16:10).replace('T',' ');
+
+function render(){
+ const a=rows();
+ if(!a.length){cs.setData([]);vs.setData([]);cs.setMarkers([]);return}
+ const L=parseFloat($('lvl').value)||30;
+ chart.applyOptions({timeScale:{timeVisible:intra()}});
+ cs.setData(a.map(b=>({time:b.t,open:b.o,high:b.h,low:b.l,close:b.c})));
+ vs.setData(a.map(b=>({time:b.t,value:b.x})));
+ if(ll)vs.removePriceLine(ll);
+ ll=vs.createPriceLine({price:L,color:'#e91e63',lineStyle:2,lineWidth:1,title:'VIX '+L});
+ const m=[];let p=false;
+ for(const b of a){const o=b.x>L;if(o&&(!$('first').checked||!p))m.push({time:b.t,position:'belowBar',shape:'arrowUp',color:'#ff4081',text:'BUY'});p=o}
+ cs.setMarkers(m);
+ if(first){TS.fitContent();first=false}
+ const l=a[a.length-1],s=m.length?m[m.length-1].time:null;
+ $('info').innerHTML=`<span>현재가 <b>${l.c.toFixed(2)}</b> · VIX <b>${l.x.toFixed(2)}</b> · 상태 <b>${l.x>L?'VIX 기준 초과 (BUY 구간)':'VIX 기준 이하 (대기)'}</b> · 최근 신호 <b>${s?'BUY':'없음'}</b>${s?' ('+fmt(s)+')':''} · BUY ${m.length}번 · <span class="dim">갱신 ${stamp}</span></span>`;
+}
+async function load(){
+ try{await refresh();render()}
+ catch(e){$('info').textContent='데이터 실패: '+e}
+}
+
+// ---------- 그리기 ----------
+const cv=$('ov'),cx=cv.getContext('2d');
+const sk=()=>'d_'+tf;
+const ld=()=>{try{D=JSON.parse(localStorage[sk()]||'[]')}catch(e){D=[]}};
+const sv=()=>{try{localStorage[sk()]=JSON.stringify(D)}catch(e){}};
+const P=d=>({x:TS.timeToCoordinate(d.t),y:cs.priceToCoordinate(d.p)});
+const C=(x,y)=>{const t=TS.coordinateToTime(x),p=cs.coordinateToPrice(y);return t==null||p==null?null:{t,p}};
+
+function paint(d){
+ const a=P(d.a),b=d.b?P(d.b):a,W=cv.width,H=cv.height;
+ if(d.k!=='h'&&(a.x==null||(d.b&&b.x==null)))return;
+ cx.strokeStyle=cx.fillStyle='#ffd54f';cx.lineWidth=1.5;cx.font='12px sans-serif';
+ const ln=(x1,y1,x2,y2)=>{cx.beginPath();cx.moveTo(x1,y1);cx.lineTo(x2,y2);cx.stroke()};
+ if(d.k==='h')ln(0,a.y,W,a.y);
+ else if(d.k==='v')ln(a.x,0,a.x,H);
+ else if(d.k==='trend')ln(a.x,a.y,b.x,b.y);
+ else if(d.k==='rect'){cx.fillStyle='rgba(41,98,255,.15)';cx.strokeStyle='#4fc3f7';cx.fillRect(a.x,a.y,b.x-a.x,b.y-a.y);cx.strokeRect(a.x,a.y,b.x-a.x,b.y-a.y)}
+ else if(d.k==='fib')[0,.236,.382,.5,.618,.786,1].forEach(v=>{
+  const y=a.y+(b.y-a.y)*v,p=d.a.p+(d.b.p-d.a.p)*v,x1=Math.min(a.x,b.x);
+  ln(x1,y,Math.max(a.x,b.x),y);cx.fillText(v+'  '+p.toFixed(2),x1+4,y-3)});
+ else if(d.k==='measure'){
+  const pc=(d.b.p/d.a.p-1)*100;cx.strokeStyle=cx.fillStyle=pc>=0?'#26a69a':'#ef5350';
+  ln(a.x,a.y,b.x,b.y);cx.fillText((pc>=0?'+':'')+pc.toFixed(2)+'%',b.x+6,b.y)}
+}
+(function f(){
+ const w=$('wrap').clientWidth,h=$('wrap').clientHeight;
+ if(cv.width!==w)cv.width=w;if(cv.height!==h)cv.height=h;
+ cx.clearRect(0,0,w,h);D.forEach(paint);if(cur)paint(cur);requestAnimationFrame(f)})();
+
+function seg(x,y,a,b){const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy||1,t=Math.max(0,Math.min(1,((x-a.x)*dx+(y-a.y)*dy)/l));return Math.hypot(x-a.x-t*dx,y-a.y-t*dy)}
+function erase(x,y){
+ let bi=-1,bd=14;
+ D.forEach((d,i)=>{const a=P(d.a),b=d.b?P(d.b):a;let m;
+  if(d.k==='h')m=Math.abs(y-a.y);
+  else if(d.k==='v')m=Math.abs(x-a.x);
+  else if(d.k==='rect'||d.k==='fib')m=(x>=Math.min(a.x,b.x)&&x<=Math.max(a.x,b.x)&&y>=Math.min(a.y,b.y)&&y<=Math.max(a.y,b.y))?0:99;
+  else m=seg(x,y,a,b);
+  if(m<bd){bd=m;bi=i}});
+ if(bi>=0){D.splice(bi,1);sv()}
+}
+function setTool(t){
+ tool=tool===t?null:t;cv.style.pointerEvents=tool?'auto':'none';
+ document.querySelectorAll('#tools button[data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===tool));
+}
+const xy=e=>{const r=cv.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top]};
+cv.onpointerdown=e=>{
+ if(!tool)return;const[x,y]=xy(e);
+ if(tool==='erase'){erase(x,y);return}
+ const c=C(x,y);if(!c)return;
+ if(tool==='h'||tool==='v'){D.push({k:tool,a:c});sv();setTool(null)}
+ else{cur={k:tool,a:c,b:c};cv.setPointerCapture(e.pointerId)}
+};
+cv.onpointermove=e=>{if(!cur)return;const c=C(...xy(e));if(c)cur.b=c};
+cv.onpointerup=()=>{if(!cur)return;D.push(cur);cur=null;sv();setTool(null)};
+
+[['trend','추세선'],['h','수평선'],['v','수직선'],['fib','피보나치'],['rect','사각형'],['measure','재기'],['erase','지우개']].forEach(([k,n])=>{
+ const b=document.createElement('button');b.textContent=n;b.dataset.t=k;b.onclick=()=>setTool(k);$('tools').append(b)});
+[['되돌리기',()=>{D.pop();sv()}],['전체삭제',()=>{D=[];sv()}]].forEach(([n,fn])=>{
+ const b=document.createElement('button');b.textContent=n;b.onclick=fn;$('tools').append(b)});
+
+// ---------- 시작 ----------
+$('tf').onchange=()=>{tf=$('tf').value;first=true;setTool(null);ld();render();load()};
+$('apply').onclick=$('lvl').oninput=$('first').onchange=render;
+ld();load();
+setInterval(()=>{if(!document.hidden)load()},30000);
+</script>
+</body>
+</html>
