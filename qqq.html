@@ -139,7 +139,7 @@
       return j;
     }).catch(function(e){clearTimeout(timer);throw e;});
   }
-  function fetchJSON(url){
+  function fetchProxy(url){
     var list=proxies(url);
     return new Promise(function(resolve,reject){
       var fails=0;
@@ -151,7 +151,12 @@
       });
     });
   }
-  function parse(j){
+  function fetchJSON(url){
+    var local=(url.indexOf('QQQ')>-1)?'data/qqq.json':'data/vix.json';
+    return tryOne(local+'?t='+Date.now()).catch(function(){
+      return fetchProxy(url);
+    });
+  }function parse(j){
     var r=j.chart.result[0], q=r.indicators.quote[0], off=r.meta.gmtoffset||0, out=[];
     for(var k=0;k<r.timestamp.length;k++){
       if(q.close[k]==null||q.open[k]==null||q.high[k]==null||q.low[k]==null) continue;
