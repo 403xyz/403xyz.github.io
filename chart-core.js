@@ -758,6 +758,7 @@
   layout();
   loadAll();
 })();
+
 /* 툴바 정리: 가로±, 가격±, 가격자동 버튼은 숨기고(기능 유지), 새로고침은 오른쪽 끝 */
 (function () {
   function clean(t) { return (t || '').replace(/[\s+＋\-－−]/g, ''); }
