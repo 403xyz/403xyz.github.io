@@ -2,6 +2,7 @@
   var CFG=window.CFG||{};
   var TIERS=CFG.tiers||[[18,30],[25,35],[30,40]];
   var VOLNAME=CFG.volName||'VIX';
+  var YAHOO=(CFG.source==='yahoo');
 
   // ===== 화면 만들기 (CSS + 본문) =====
   document.title=CFG.title||'차트';
@@ -21,7 +22,7 @@
   '.stat b{display:block;font-size:16px;margin-top:2px}'+
   '.stat span{color:var(--muted);font-size:12px}'+
   '.stat.sig b{color:var(--gold)}'+
-  '.rules{display:flex;flex-direction:column;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-bottom:10px;color:var(--muted)}'+
+  '.rules{display:grid;grid-template-columns:repeat(2,auto);justify-content:start;column-gap:28px;row-gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-bottom:10px;color:var(--muted)}'+
   '.rules input{width:56px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px;font-size:14px}'+
   '.rules .grp{display:flex;align-items:center;gap:5px;flex-wrap:wrap}'+
   '.rules .grp em{font-style:normal;font-weight:700;min-width:58px}'+
@@ -41,7 +42,9 @@
   'th:first-child,td:first-child{text-align:left}'+
   'th{color:var(--muted);font-weight:500}'+
   'td.x1{color:#f2b84b;font-weight:700}td.x2{color:#ff9f43;font-weight:700}td.x3{color:#ff5d73;font-weight:700}'+
-  '.note{color:var(--muted);font-size:12px;margin-top:12px;line-height:1.6}';
+  '.note{color:var(--muted);font-size:12px;margin-top:12px;line-height:1.6}'+
+  '#zin,#zout,#pin,#pout,#pauto{display:none}'+
+  '@media(max-width:720px){.rules{grid-template-columns:1fr}}';
   var st=document.createElement('style'); st.textContent=css; document.head.appendChild(st);
 
   function tierHTML(n){
@@ -69,9 +72,9 @@
     '</div>'+
     '<div class="rules">'+tierHTML(1)+tierHTML(2)+tierHTML(3)+manualHTML+'</div>'+
     '<div class="toolbar">'+
-      '<label>봉 <select id="tf"><option value="1h">1시간</option><option value="4h">4시간</option><option value="1d" selected>1일</option><option value="1w">1주</option></select></label>'+
+      '<label>봉 <select id="tf">'+(YAHOO?'':'<option value="1h">1시간</option><option value="4h">4시간</option>')+'<option value="1d" selected>1일</option><option value="1w">1주</option></select></label>'+
       '<span class="bar"></span>'+
-      '<button data-tool="none" class="on">이동</button><button data-tool="h">수평선</button><button data-tool="v">수직선</button><button data-tool="l">추세선</button><button data-tool="r">사각형</button>'+
+      '<button data-tool="none" class="on">이동</button><button data-tool="h">수평선</button><button data-tool="v">수직선</button><button data-tool="l">추세선</button><button data-tool="r">사각형</button><button data-tool="m">재기</button>'+
       '<span class="bar"></span>'+
       '<button id="undo">마지막 지우기</button><button id="clear">전체 지우기</button>'+
       '<span class="sp"></span>'+
@@ -111,7 +114,7 @@
   var W=0,H=0,pw=0,ph=0,dpr=1;
   var left=0, barW=7;
   var yMin=0,yMax=1, manual=false, mMin=0, mMax=1;
-  var tool='none', drawings=[], draft=null;
+  var tool='none', drawings=[], draft=null, meas=null;
   var mouse=null, panning=null, axisDrag=null;
   var dirty=false, lastTick=0, wsState='off';
 
@@ -197,6 +200,22 @@
     if(!Object.keys(m).length) throw new Error('empty map');
     return m;
   }
+  function parseYahooBars(j){
+    var r=j.chart.result[0], q=r.indicators.quote[0], off=r.meta.gmtoffset||0, out=[], k, ds;
+    for(k=0;k<r.timestamp.length;k++){
+      if(q.close[k]==null||q.open[k]==null||q.high[k]==null||q.low[k]==null) continue;
+      ds=new Date((r.timestamp[k]+off)*1000).toISOString().slice(0,10);
+      out.push({t:Date.parse(ds+'T00:00:00Z'),o:q.open[k],h:q.high[k],l:q.low[k],c:q.close[k]});
+    }
+    if(!out.length) throw new Error('empty');
+    return out;
+  }
+  function loadQuote(){
+    var yUrl='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(CFG.yahooSymbol||'QQQ')+'?range=5y&interval=1d';
+    return tryYahoo((CFG.localFile||'data/qqq.json')+'?t='+Date.now())
+      .catch(function(){return fetchProxy(yUrl);})
+      .then(parseYahooBars);
+  }
   function loadVol(){
     if(VOLFORMAT==='yahoo'){
       var yUrl='https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?range=5y&interval=1d';
@@ -219,7 +238,7 @@
   function loadAll(){
     showMsg('불러오는 중…');
     volFailed=false;
-    var pD=getCandles('1d');
+    var pD=YAHOO?loadQuote():getCandles('1d');
     var pV=loadVol().catch(function(){volFailed=true;vm={};});
     Promise.all([pD,pV]).then(function(res){
       raw['1d']=res[0]; daily=raw['1d']; raw['1h']=null; raw['4h']=null;
@@ -229,9 +248,9 @@
       computeDaily(); buildBars();
       layout(); resetView(); updateStats(); fillTable(); hideMsg(); draw();
       if(volFailed) infoEl.textContent='⚠ '+VOLNAME+' 데이터를 받지 못해 BUY 신호가 표시되지 않습니다.'+(MANUAL?' 위의 직접 입력 칸에 오늘 값을 넣을 수 있습니다.':' 새로고침을 눌러 보세요.');
-      connectWS();
+      if(YAHOO){ liveEl.className=''; liveEl.textContent='Yahoo Finance 일봉 (실시간 아님)'; } else connectWS();
     }).catch(function(){
-      showMsg('Hyperliquid 데이터를 불러오지 못했습니다.\n잠시 후 "새로고침" 버튼을 눌러 주세요.');
+      showMsg((YAHOO?'Yahoo':'Hyperliquid')+' 데이터를 불러오지 못했습니다.\n잠시 후 "새로고침" 버튼을 눌러 주세요.');
     });
   }
   function ensureTF(t){
@@ -521,6 +540,7 @@
 
     drawings.forEach(function(d){drawShape(d,false);});
     if(draft) drawShape(draft,true);
+    drawMeasure();
 
     var inPlot=mouse && mouse.x<pw && mouse.y<ph && mouse.x>=0 && mouse.y>=0;
     if(inPlot){
@@ -576,6 +596,44 @@
     ctx.fillStyle=bg; ctx.fillRect(pw,y-9,AX,18);
     ctx.fillStyle=fg; ctx.textAlign='left'; ctx.fillText(text,pw+6,y+4);
   }
+  function fmtDur(ms){
+    ms=Math.abs(ms);
+    if(ms>=DAY){
+      var d=Math.floor(ms/DAY), h=Math.round((ms%DAY)/36e5);
+      if(h===24){ d++; h=0; }
+      return d+'일'+(h?' '+h+'시간':'');
+    }
+    if(ms>=36e5) return Math.round(ms/36e5)+'시간';
+    return Math.round(ms/6e4)+'분';
+  }
+  function drawMeasure(){
+    if(!meas) return;
+    var x1=xT(meas.t1), y1=yOf(meas.p1), x2=xT(meas.t2), y2=yOf(meas.p2);
+    var diff=meas.p2-meas.p1, pct=meas.p1?diff/meas.p1*100:0, up=diff>=0;
+    var col=up?UP_COLOR:DOWN_COLOR;
+    var nb=Math.abs(Math.round(tToI(meas.t2)-tToI(meas.t1)));
+    ctx.setLineDash([]);
+    ctx.fillStyle=up?'rgba(229,72,77,0.14)':'rgba(59,130,246,0.14)';
+    ctx.fillRect(Math.min(x1,x2),Math.min(y1,y2),Math.abs(x2-x1),Math.abs(y2-y1));
+    ctx.strokeStyle=col; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    var ang=Math.atan2(y2-y1,x2-x1);
+    ctx.beginPath();
+    ctx.moveTo(x2,y2); ctx.lineTo(x2-9*Math.cos(ang-0.45),y2-9*Math.sin(ang-0.45));
+    ctx.moveTo(x2,y2); ctx.lineTo(x2-9*Math.cos(ang+0.45),y2-9*Math.sin(ang+0.45));
+    ctx.stroke();
+    var sg=up?'+':'\u2212';
+    var l1=sg+fmtP(Math.abs(diff))+' ('+sg+Math.abs(pct).toFixed(2)+'%)';
+    var l2=nb+'봉 · '+fmtDur(meas.t2-meas.t1);
+    ctx.font='bold 12px sans-serif'; ctx.textAlign='left';
+    var bw2=Math.max(ctx.measureText(l1).width,ctx.measureText(l2).width)+16, bh=38;
+    var bx=(x1+x2)/2-bw2/2, by=up?Math.min(y1,y2)-bh-6:Math.max(y1,y2)+6;
+    bx=Math.max(2,Math.min(pw-bw2-2,bx)); by=Math.max(2,Math.min(ph-bh-2,by));
+    ctx.fillStyle=col; ctx.fillRect(bx,by,bw2,bh);
+    ctx.fillStyle='#ffffff';
+    ctx.fillText(l1,bx+8,by+16); ctx.fillText(l2,bx+8,by+31);
+    ctx.lineWidth=1;
+  }
   function drawShape(d,isDraft){
     ctx.strokeStyle=DRAW_COLOR; ctx.lineWidth=1.5; ctx.setLineDash(isDraft?[5,4]:[]);
     if(d.k==='h'){
@@ -618,6 +676,9 @@
       drawings.push({k:'h',p:pOf(p.y)}); save(); draw();
     }else if(tool==='v'){
       drawings.push({k:'v',t:iToT(Math.round(iOf(p.x)))}); save(); draw();
+    }else if(tool==='m'){
+      var tm=iToT(Math.round(iOf(p.x))), pm=pOf(p.y);
+      meas={t1:tm,p1:pm,t2:tm,p2:pm,live:true};
     }else{
       var t0=iToT(iOf(p.x)), p0=pOf(p.y);
       draft={k:tool,t1:t0,p1:p0,t2:t0,p2:p0};
@@ -643,12 +704,18 @@
       }
     }else if(draft){
       draft.t2=iToT(iOf(p.x)); draft.p2=pOf(p.y);
+    }else if(meas && meas.live){
+      meas.t2=iToT(Math.round(iOf(p.x))); meas.p2=pOf(p.y);
     }
     showInfo(); draw();
   });
   function endPointer(){
     if(axisDrag){ axisDrag=null; }
     if(panning){ panning=null; }
+    if(meas && meas.live){
+      meas.live=false;
+      if(Math.abs(xT(meas.t2)-xT(meas.t1))+Math.abs(yOf(meas.p2)-yOf(meas.p1))<4) meas=null;
+    }
     if(draft){
       var moved=Math.abs(xT(draft.t2)-xT(draft.t1))+Math.abs(yOf(draft.p2)-yOf(draft.p1));
       if(moved>4){ drawings.push(draft); save(); }
@@ -719,7 +786,7 @@
       tool=btn.getAttribute('data-tool');
       document.querySelectorAll('[data-tool]').forEach(function(b){b.classList.toggle('on',b===btn);});
       cv.style.cursor=tool==='none'?'grab':'crosshair';
-      draft=null;
+      draft=null; meas=null;
     });
   });
   document.getElementById('undo').onclick=function(){drawings.pop();save();draw();};
@@ -757,31 +824,4 @@
   window.addEventListener('resize',function(){ if(!bars.length) return; layout(); draw(); });
   layout();
   loadAll();
-})();
-
-/* 툴바 정리: 가로±, 가격±, 가격자동 버튼은 숨기고(기능 유지), 새로고침은 오른쪽 끝 */
-(function () {
-  function clean(t) { return (t || '').replace(/[\s+＋\-－−]/g, ''); }
-  var HIDE = ['가로', '가격', '가격자동'];
-  function tidy() {
-    var els = document.querySelectorAll('button, input[type=button], a');
-    for (var i = 0; i < els.length; i++) {
-      var el = els[i];
-      var label = clean(el.textContent || el.value);
-      if (HIDE.indexOf(label) > -1) {
-        el.style.display = 'none';
-      } else if (label.indexOf('새로고침') > -1) {
-        var p = el.parentElement;
-        if (p && getComputedStyle(p).display.indexOf('flex') > -1) {
-          el.style.marginLeft = 'auto';
-        } else {
-          el.style.float = 'right';
-        }
-      }
-    }
-  }
-  document.addEventListener('DOMContentLoaded', tidy);
-  window.addEventListener('load', tidy);
-  setTimeout(tidy, 1000);
-  setTimeout(tidy, 3000);
 })();
