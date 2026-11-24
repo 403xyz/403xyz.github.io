@@ -758,3 +758,29 @@
   layout();
   loadAll();
 })();
+/* 툴바 정리: 가로±, 가격±, 가격자동 버튼은 숨기고(기능 유지), 새로고침은 오른쪽 끝 */
+(function () {
+  function clean(t) { return (t || '').replace(/[\s+＋\-－−]/g, ''); }
+  var HIDE = ['가로', '가격', '가격자동'];
+  function tidy() {
+    var els = document.querySelectorAll('button, input[type=button], a');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var label = clean(el.textContent || el.value);
+      if (HIDE.indexOf(label) > -1) {
+        el.style.display = 'none';
+      } else if (label.indexOf('새로고침') > -1) {
+        var p = el.parentElement;
+        if (p && getComputedStyle(p).display.indexOf('flex') > -1) {
+          el.style.marginLeft = 'auto';
+        } else {
+          el.style.float = 'right';
+        }
+      }
+    }
+  }
+  document.addEventListener('DOMContentLoaded', tidy);
+  window.addEventListener('load', tidy);
+  setTimeout(tidy, 1000);
+  setTimeout(tidy, 3000);
+})();
