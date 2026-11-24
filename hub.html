@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>차트 모음</title>
+<style>
+  html,body{height:100%;margin:0;background:#10141b;color:#d7dde8;
+    font-family:-apple-system,"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;font-size:14px}
+  body{display:flex;flex-direction:column}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;
+    background:#171d27;border-bottom:1px solid #2a3342}
+  .bar button{background:#171d27;color:#d7dde8;border:1px solid #2a3342;border-radius:6px;
+    padding:7px 14px;font-size:14px;cursor:pointer}
+  .bar button:hover{border-color:#8793a6}
+  .bar button.on{background:#f2b84b;color:#1a1405;border-color:#f2b84b;font-weight:700}
+  .sp{flex:1}
+  .bar a{color:#8793a6;font-size:13px;text-decoration:none}
+  .bar a:hover{color:#d7dde8}
+  iframe{flex:1;border:0;width:100%;background:#10141b}
+</style>
+</head>
+<body>
+<div class="bar" id="bar"><span class="sp" id="sp"></span><a id="open" target="_blank" rel="noopener">새 탭으로 열기 ↗</a></div>
+<iframe id="f" title="차트"></iframe>
+<script>
+(function(){
+  // 사이트를 추가하거나 이름을 바꾸려면 이 목록만 고치면 됩니다
+  var SITES=[
+    {id:'xyz100', label:'XYZ100 + VIX',   url:'/xyz100.html'},
+    {id:'kospi',  label:'KOSPI + VKOSPI', url:'/kospi.html'},
+    {id:'qqq',    label:'QQQ + VIX',      url:'/qqq.html'},
+    {id:'btc',    label:'BTC 주봉 40MA',  url:'/'}
+  ];
+  var bar=document.getElementById('bar'), sp=document.getElementById('sp');
+  var f=document.getElementById('f'), openLink=document.getElementById('open');
+  var cur=null, btns={};
+
+  SITES.forEach(function(s){
+    var b=document.createElement('button');
+    b.textContent=s.label;
+    b.addEventListener('click',function(){ select(s.id); });
+    bar.insertBefore(b,sp);
+    btns[s.id]=b;
+  });
+
+  function find(id){
+    for(var i=0;i<SITES.length;i++) if(SITES[i].id===id) return SITES[i];
+    return null;
+  }
+  function select(id){
+    var s=find(id)||SITES[0];
+    if(cur===s.id) return;
+    cur=s.id;
+    Object.keys(btns).forEach(function(k){ btns[k].classList.toggle('on',k===s.id); });
+    f.src=s.url;
+    openLink.href=s.url;
+    document.title=s.label+' · 차트 모음';
+    try{ history.replaceState(null,'','#'+s.id); }catch(e){}
+    try{ localStorage.setItem('hub_last',s.id); }catch(e){}
+  }
+
+  // 같은 사이트 안이라서 페이지 안쪽의 중복 메뉴(nav)를 숨길 수 있습니다
+  f.addEventListener('load',function(){
+    try{
+      var d=f.contentDocument, n=d&&d.querySelector('nav');
+      if(n) n.style.display='none';
+    }catch(e){}
+  });
+
+  window.addEventListener('hashchange',function(){ select(location.hash.slice(1)); });
+
+  var start=location.hash.slice(1);
+  if(!find(start)){
+    try{ start=localStorage.getItem('hub_last')||''; }catch(e){ start=''; }
+  }
+  select(find(start)?start:SITES[0].id);
+})();
+</script>
+</body>
+</html>
