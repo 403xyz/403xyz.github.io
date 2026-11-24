@@ -68,7 +68,7 @@
       '<div class="stat"><span>52주 고점</span><b id="sHigh">-</b></div>'+
       '<div class="stat"><span>고점 대비</span><b id="sDD">-</b></div>'+
       '<div class="stat"><span>'+VOLNAME+'</span><b id="sVix">-</b></div>'+
-      '<div class="stat sig"><span>지금 신호</span><b id="sSig">-</b></div>'+
+      '<div class="stat sig"><span>시그</span><b id="sSig">-</b></div>'+
     '</div>'+
     '<div class="rules">'+tierHTML(1)+tierHTML(2)+tierHTML(3)+manualHTML+'</div>'+
     '<div class="toolbar">'+
@@ -303,9 +303,10 @@
     document.getElementById('sHigh').textContent=fmtP(b.hi52);
     document.getElementById('sDD').textContent=(b.dd*100).toFixed(1)+'%';
     document.getElementById('sVix').textContent=b.vix!=null?b.vix.toFixed(2):'-';
-    var s=document.getElementById('sSig');
-    s.textContent=(REQUIRE_FULL&&!b.full)?'계산 불가':(b.sig?'x'+b.sig+' BUY':'없음');
-    s.style.color=b.sig?SIGCOL[b.sig]:'';
+    var s=document.getElementById('sSig'), ls=null, i;
+    for(i=daily.length-1;i>=0;i--) if(daily[i].sig){ ls=daily[i]; break; }
+    s.textContent=ls?('x'+ls.sig+' BUY · '+kstISO(ls.t).slice(0,10)):((REQUIRE_FULL&&!b.full)?'계산 불가':'없음');
+    s.style.color=ls?SIGCOL[ls.sig]:'';
   }
   function fillTable(){
     var rows=[], i;
