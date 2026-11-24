@@ -150,7 +150,7 @@
         });
       });
     });
-  } 
+  }
   function parse(j){
     var r=j.chart.result[0], q=r.indicators.quote[0], off=r.meta.gmtoffset||0, out=[];
     for(var k=0;k<r.timestamp.length;k++){
@@ -164,24 +164,28 @@
     msg.style.display='flex'; msg.textContent='불러오는 중…';
     var qUrl='https://query1.finance.yahoo.com/v8/finance/chart/QQQ?range=5y&interval=1d';
     var vUrl='https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?range=5y&interval=1d';
-    Promise.all([fetchJSON(qUrl),fetchJSON(vUrl)]).then(function(res){
-      var q=parse(res[0]), v=parse(res[1]), vm={};
-      v.forEach(function(x){vm[x.d]=x.c;});
+    var vixFailed=false;
+    var pq=fetchJSON(qUrl);
+    var pv=fetchJSON(vUrl).catch(function(){vixFailed=true;return null;});
+    Promise.all([pq,pv]).then(function(res){
+      var q=parse(res[0]), vm={};
+      if(res[1]){ parse(res[1]).forEach(function(x){vm[x.d]=x.c;}); }
       q.forEach(function(b){b.vix=(vm[b.d]!=null)?vm[b.d]:null;});
       try{localStorage.setItem('qqq_cache_v1',JSON.stringify(q));}catch(e){}
       start(q,false);
+      if(vixFailed) infoEl.textContent='⚠ VIX 데이터를 받지 못해 BUY 신호가 표시되지 않습니다. 새로고침을 눌러 보세요.';
     }).catch(function(){
       var c=null;
       try{c=JSON.parse(localStorage.getItem('qqq_cache_v1')||'null');}catch(e){}
       if(c&&c.length){ start(c,true); }
-      else{ msg.textContent='데이터를 불러오지 못했습니다.\n잠시 후 "새로고침" 버튼을 눌러 주세요.'; }
+      else{ msg.style.display='flex'; msg.textContent='데이터를 불러오지 못했습니다.\n잠시 후 "새로고침" 버튼을 눌러 주세요.'; }
     });
   }
   function start(data,cached){
     bars=data;
     computeSignals();
-    msg.style.display=cached?'flex':'none';
-    if(cached){ msg.textContent=''; msg.style.display='none'; infoEl.textContent='⚠ 최신 데이터를 못 받아서 저장된 이전 데이터를 보여줍니다.'; }
+    msg.style.display='none';
+    if(cached){ infoEl.textContent='⚠ 최신 데이터를 못 받아서 저장된 이전 데이터를 보여줍니다.'; }
     layout(); resetView(); updateStats(); fillTable(); draw();
   }
 
