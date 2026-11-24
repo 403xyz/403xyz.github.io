@@ -13,7 +13,21 @@
   #chart { width:100%; height:calc(100vh - 80px); }
 </style>
 </head>
-<body>
+<body><div id="siteMenu" style="position:fixed;top:8px;right:8px;z-index:99999;font:13px sans-serif">
+  <select style="padding:6px 8px;border-radius:6px;border:1px solid #ccc;background:#fff;color:#222">
+    <option value="/">BTC 주봉 40MA</option>
+    <option value="/qqq.html">QQQ + VIX BUY</option>
+  </select>
+</div>
+<script>
+  (function () {
+    var s = document.querySelector('#siteMenu select');
+    for (var i = 0; i < s.options.length; i++) {
+      if (s.options[i].value === location.pathname) s.selectedIndex = i;
+    }
+    s.onchange = function () { location.href = s.value; };
+  })();
+</script>
 <header>
   <h1>QQQ 차트 (VIX 30 초과 = BUY)</h1>
   <div id="info">불러오는 중...</div>
