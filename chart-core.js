@@ -68,8 +68,7 @@
       '<div class="stat"><span>52주 고점</span><b id="sHigh">-</b></div>'+
       '<div class="stat"><span>고점 대비</span><b id="sDD">-</b></div>'+
       '<div class="stat"><span>'+VOLNAME+'</span><b id="sVix">-</b></div>'+
-      '<div class="stat sig"><span>시그널</span><b id="sSig">-</b></div>'+
-    '</div>'+
+    '<div class="stat sig"><span>&#49884;&#44536;&#45328;</span><b id="sSig">-</b></div>'+    '</div>'+
     '<div class="rules">'+tierHTML(1)+tierHTML(2)+tierHTML(3)+manualHTML+'</div>'+
     '<div class="toolbar">'+
       '<label>봉 <select id="tf">'+(YAHOO?'':'<option value="1h">1시간</option><option value="4h">4시간</option>')+'<option value="1d" selected>1일</option><option value="1w">1주</option></select></label>'+
