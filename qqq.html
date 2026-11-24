@@ -13,7 +13,9 @@
   #chart { width:100%; height:calc(100vh - 80px); }
 </style>
 </head>
-<body><div id="siteMenu" style="position:fixed;top:8px;right:8px;z-index:99999;font:13px sans-serif">
+<body>
+
+<div id="siteMenu" style="position:fixed;top:8px;right:8px;z-index:99999;font:13px sans-serif">
   <select style="padding:6px 8px;border-radius:6px;border:1px solid #ccc;background:#fff;color:#222">
     <option value="/">BTC 주봉 40MA</option>
     <option value="/qqq.html">QQQ + VIX BUY</option>
@@ -28,8 +30,53 @@
     s.onchange = function () { location.href = s.value; };
   })();
 </script>
+
 <header>
   <h1>QQQ 차트 (VIX 30 초과 = BUY)</h1>
   <div id="info">불러오는 중...</div>
 </header>
-<
+<div id="chart"></div>
+<script>
+  // ===== 설정 =====
+  const VIX_LEVEL = 30;       // 이 값을 넘으면 BUY
+  const ONLY_FIRST_DAY = true; // true: 30 처음 넘은 날만 / false: 30 넘은 모든 날
+
+  const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+    autoSize: true,
+    layout: { background: { color: '#ffffff' }, textColor: '#222' },
+    grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
+    rightPriceScale: { borderVisible: false },
+    timeScale: { borderVisible: false },
+  });
+  const series = chart.addLineSeries({ color: '#2962ff', lineWidth: 2 });
+
+  fetch('data.json?t=' + Date.now())
+    .then(r => r.json())
+    .then(rows => {
+      series.setData(rows.map(r => ({ time: r.time, value: r.close })));
+
+      const markers = [];
+      let prevOver = false;
+      for (const r of rows) {
+        const over = r.vix > VIX_LEVEL;
+        if (over && (!ONLY_FIRST_DAY || !prevOver)) {
+          markers.push({
+            time: r.time, position: 'belowBar', shape: 'arrowUp',
+            color: '#e91e63', text: 'BUY',
+          });
+        }
+        prevOver = over;
+      }
+      series.setMarkers(markers);
+      chart.timeScale().fitContent();
+
+      const last = rows[rows.length - 1];
+      document.getElementById('info').textContent =
+        `BUY ${markers.length}번 | 마지막 데이터: ${last.time} | QQQ ${last.close} | VIX ${last.vix}`;
+    })
+    .catch(e => {
+      document.getElementById('info').textContent = 'data.json을 못 불러왔어: ' + e;
+    });
+</script>
+</body>
+</html>
