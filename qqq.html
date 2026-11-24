@@ -6,9 +6,9 @@
 <title>QQQ · VIX BUY</title>
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
-html,body{height:100%}
+html,body{height:100%;overflow:hidden}
 body{margin:0;display:flex;flex-direction:column;background:#0d1117;color:#e6e8eb;font-family:-apple-system,"Malgun Gothic",sans-serif}
-.row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid #1c222d;font-size:14px}
+.row{flex-shrink:0;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid #1c222d;font-size:14px}
 #r1{padding-right:200px}
 h1{font-size:18px;margin:0 8px 0 0}
 select,input,button{background:#1a202b;color:#e6e8eb;border:1px solid #2a3140;border-radius:8px;padding:8px 12px;font-size:14px}
@@ -16,9 +16,10 @@ input[type=number]{width:64px}
 button{cursor:pointer}
 button.on{background:#2962ff;border-color:#2962ff}
 .dim{color:#8b94a5}
+#info{flex-wrap:nowrap;white-space:nowrap;overflow-x:auto;min-height:20px}
 #info b{color:#fff}
-#wrap{position:relative;flex:1;min-height:320px}
-#chart,#ov{position:absolute;inset:0}
+#wrap{position:relative;flex:1;min-height:0;overflow:hidden}
+#chart,#ov{position:absolute;left:0;top:0;width:100%;height:100%}
 #ov{pointer-events:none;touch-action:none}
 </style>
 </head>
@@ -51,7 +52,7 @@ s.onchange=function(){location.href=s.value}})();
 const WORKER='https://shrill-shape-7c76qqq-proxy.nikemix99.workers.dev';
 const $=i=>document.getElementById(i);
 const CFG={'1h':'60m','4h':'60m','1d':'1d','1w':'1d'},FULL={'60m':'2y','1d':'max'};
-const store={};let tf='1d',D=[],tool=null,cur=null,first=true,stamp='',ll=null;
+const store={};let tf='1d',D=[],tool=null,cur=null,first=true,stamp='',ll=null,busy=false;
 const intra=()=>tf==='1h'||tf==='4h';
 
 const chart=LightweightCharts.createChart($('chart'),{autoSize:true,
@@ -117,14 +118,17 @@ function render(){
  if(first){TS.fitContent();first=false}
  const l=a[a.length-1],s=m.length?m[m.length-1].time:null;
  $('info').innerHTML=`<span>현재가 <b>${l.c.toFixed(2)}</b> · VIX <b>${l.x.toFixed(2)}</b> · 상태 <b>${l.x>L?'VIX 기준 초과 (BUY 구간)':'VIX 기준 이하 (대기)'}</b> · 최근 신호 <b>${s?'BUY':'없음'}</b>${s?' ('+fmt(s)+')':''} · BUY ${m.length}번 · <span class="dim">갱신 ${stamp}</span></span>`;
+ redraw();
 }
 async function load(){
+ if(busy)return;busy=true;
  try{await refresh();render()}
  catch(e){$('info').textContent='데이터 실패: '+e}
+ busy=false;
 }
 
 // ---------- 그리기 ----------
-const cv=$('ov'),cx=cv.getContext('2d');
+const wrap=$('wrap'),cv=$('ov'),cx=cv.getContext('2d');
 const sk=()=>'d_'+tf;
 const ld=()=>{try{D=JSON.parse(localStorage[sk()]||'[]')}catch(e){D=[]}};
 const sv=()=>{try{localStorage[sk()]=JSON.stringify(D)}catch(e){}};
@@ -147,10 +151,15 @@ function paint(d){
   const pc=(d.b.p/d.a.p-1)*100;cx.strokeStyle=cx.fillStyle=pc>=0?'#26a69a':'#ef5350';
   ln(a.x,a.y,b.x,b.y);cx.fillText((pc>=0?'+':'')+pc.toFixed(2)+'%',b.x+6,b.y)}
 }
-(function f(){
- const w=$('wrap').clientWidth,h=$('wrap').clientHeight;
- if(cv.width!==w)cv.width=w;if(cv.height!==h)cv.height=h;
- cx.clearRect(0,0,w,h);D.forEach(paint);if(cur)paint(cur);requestAnimationFrame(f)})();
+function redraw(){
+ const w=wrap.clientWidth,h=wrap.clientHeight;
+ if(cv.width!==w)cv.width=w;
+ if(cv.height!==h)cv.height=h;
+ cx.clearRect(0,0,w,h);D.forEach(paint);if(cur)paint(cur);
+}
+TS.subscribeVisibleTimeRangeChange(redraw);
+new ResizeObserver(redraw).observe(wrap);
+setInterval(redraw,200);
 
 function seg(x,y,a,b){const dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy||1,t=Math.max(0,Math.min(1,((x-a.x)*dx+(y-a.y)*dy)/l));return Math.hypot(x-a.x-t*dx,y-a.y-t*dy)}
 function erase(x,y){
@@ -161,7 +170,7 @@ function erase(x,y){
   else if(d.k==='rect'||d.k==='fib')m=(x>=Math.min(a.x,b.x)&&x<=Math.max(a.x,b.x)&&y>=Math.min(a.y,b.y)&&y<=Math.max(a.y,b.y))?0:99;
   else m=seg(x,y,a,b);
   if(m<bd){bd=m;bi=i}});
- if(bi>=0){D.splice(bi,1);sv()}
+ if(bi>=0){D.splice(bi,1);sv();redraw()}
 }
 function setTool(t){
  tool=tool===t?null:t;cv.style.pointerEvents=tool?'auto':'none';
@@ -172,22 +181,16 @@ cv.onpointerdown=e=>{
  if(!tool)return;const[x,y]=xy(e);
  if(tool==='erase'){erase(x,y);return}
  const c=C(x,y);if(!c)return;
- if(tool==='h'||tool==='v'){D.push({k:tool,a:c});sv();setTool(null)}
+ if(tool==='h'||tool==='v'){D.push({k:tool,a:c});sv();setTool(null);redraw()}
  else{cur={k:tool,a:c,b:c};cv.setPointerCapture(e.pointerId)}
 };
-cv.onpointermove=e=>{if(!cur)return;const c=C(...xy(e));if(c)cur.b=c};
-cv.onpointerup=()=>{if(!cur)return;D.push(cur);cur=null;sv();setTool(null)};
+cv.onpointermove=e=>{if(!cur)return;const c=C(...xy(e));if(c){cur.b=c;redraw()}};
+cv.onpointerup=()=>{if(!cur)return;D.push(cur);cur=null;sv();setTool(null);redraw()};
 
 [['trend','추세선'],['h','수평선'],['v','수직선'],['fib','피보나치'],['rect','사각형'],['measure','재기'],['erase','지우개']].forEach(([k,n])=>{
  const b=document.createElement('button');b.textContent=n;b.dataset.t=k;b.onclick=()=>setTool(k);$('tools').append(b)});
-[['되돌리기',()=>{D.pop();sv()}],['전체삭제',()=>{D=[];sv()}]].forEach(([n,fn])=>{
+[['되돌리기',()=>{D.pop();sv();redraw()}],['전체삭제',()=>{D=[];sv();redraw()}]].forEach(([n,fn])=>{
  const b=document.createElement('button');b.textContent=n;b.onclick=fn;$('tools').append(b)});
 
 // ---------- 시작 ----------
-$('tf').onchange=()=>{tf=$('tf').value;first=true;setTool(null);ld();render();load()};
-$('apply').onclick=$('lvl').oninput=$('first').onchange=render;
-ld();load();
-setInterval(()=>{if(!document.hidden)load()},30000);
-</script>
-</body>
-</html>
+$('tf').onchange=()=>{tf=$('tf').value;first=true;setT
