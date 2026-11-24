@@ -3,20 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QQQ + VIX 30 BUY</title>
+<title>QQQ · VIX 30 BUY</title>
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
-  body { margin:0; font-family:-apple-system,"Malgun Gothic",sans-serif; background:#fff; color:#222; }
-  header { padding:12px 16px; }
-  h1 { font-size:18px; margin:0 0 4px; }
-  #info { font-size:13px; color:#666; }
-  #chart { width:100%; height:calc(100vh - 80px); }
+  html, body { height:100%; }
+  body { margin:0; display:flex; flex-direction:column; background:#0e1117; color:#e6e8eb;
+         font-family:-apple-system,"Malgun Gothic",sans-serif; }
+  header { padding:12px 16px 8px; padding-right:190px; }
+  h1 { font-size:18px; margin:0 0 8px; }
+  .bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:13px; }
+  .bar button { background:#1c212b; color:#cfd3da; border:1px solid #2c3340; border-radius:6px;
+                padding:5px 12px; cursor:pointer; }
+  .bar button.on { background:#2962ff; border-color:#2962ff; color:#fff; }
+  .bar input { width:56px; background:#1c212b; color:#e6e8eb; border:1px solid #2c3340;
+               border-radius:6px; padding:5px 6px; }
+  #info { padding:0 16px 8px; font-size:13px; color:#9aa3b2; }
+  #chart { flex:1; min-height:300px; }
+  footer { padding:8px 16px; font-size:11px; color:#6b7482; }
 </style>
 </head>
 <body>
 
 <div id="siteMenu" style="position:fixed;top:8px;right:8px;z-index:99999;font:13px sans-serif">
-  <select style="padding:6px 8px;border-radius:6px;border:1px solid #ccc;background:#fff;color:#222">
+  <select style="padding:6px 8px;border-radius:6px;border:1px solid #2c3340;background:#1c212b;color:#e6e8eb">
     <option value="/">BTC 주봉 40MA</option>
     <option value="/qqq.html">QQQ + VIX BUY</option>
   </select>
@@ -32,45 +41,98 @@
 </script>
 
 <header>
-  <h1>QQQ 차트 (VIX 30 초과 = BUY)</h1>
-  <div id="info">불러오는 중...</div>
+  <h1>QQQ · VIX 30 초과 BUY</h1>
+  <div class="bar">
+    <span>봉</span>
+    <button id="btnD" class="on">1일</button>
+    <button id="btnW">1주</button>
+    <span style="margin-left:8px">VIX 기준</span>
+    <input id="lvl" type="number" value="30" step="1" min="1">
+    <label style="margin-left:8px"><input id="first" type="checkbox" checked style="width:auto"> 처음 넘은 봉만</label>
+  </div>
 </header>
+<div id="info">불러오는 중…</div>
 <div id="chart"></div>
+<footer>데이터: 야후 파이낸스 QQQ·^VIX (1분마다 갱신, 최대 15분 지연 가능) · 주봉은 그 주 VIX 최고값 기준 · 학습·참고용이며 투자 권유가 아닙니다.</footer>
+
 <script>
-  // ===== 설정 =====
-  const VIX_LEVEL = 30;         // 이 값을 넘으면 BUY
-  const ONLY_FIRST_DAY = true;  // true: 30 처음 넘은 날만 / false: 30 넘은 모든 날
-  const REFRESH_SEC = 60;       // 실시간 갱신 간격(초)
+  const REFRESH_SEC = 60;
+  const $ = id => document.getElementById(id);
 
-  const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+  const chart = LightweightCharts.createChart($('chart'), {
     autoSize: true,
-    layout: { background: { color: '#ffffff' }, textColor: '#222' },
-    grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
-    rightPriceScale: { borderVisible: false },
-    timeScale: { borderVisible: false },
+    layout: { background: { color: '#0e1117' }, textColor: '#9aa3b2' },
+    grid: { vertLines: { color: '#171c25' }, horzLines: { color: '#171c25' } },
+    rightPriceScale: { borderColor: '#2c3340' },
+    timeScale: { borderColor: '#2c3340' },
+    crosshair: { mode: 0 },
   });
-  const series = chart.addLineSeries({ color: '#2962ff', lineWidth: 2 });
-  const info = document.getElementById('info');
+  const candles = chart.addCandlestickSeries({
+    upColor: '#26a69a', downColor: '#ef5350',
+    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+    wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+  });
+  chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.30 } });
 
-  let baseRows = [];
-  let firstDraw = true;
-  let liveText = '';
+  const vixLine = chart.addLineSeries({
+    color: '#ffb300', lineWidth: 1, priceScaleId: 'vix',
+    priceLineVisible: false, lastValueVisible: true,
+  });
+  chart.priceScale('vix').applyOptions({ scaleMargins: { top: 0.76, bottom: 0.02 } });
+  let levelLine = null;
 
-  function render(rows) {
-    series.setData(rows.map(r => ({ time: r.time, value: r.close })));
-    const markers = [];
-    let prevOver = false;
+  let tf = 'D', baseRows = [], liveRow = null, liveText = '', firstDraw = true;
+
+  function monday(s) {
+    const d = new Date(s + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  }
+  function weekly(rows) {
+    const m = new Map();
     for (const r of rows) {
-      const over = r.vix > VIX_LEVEL;
-      if (over && (!ONLY_FIRST_DAY || !prevOver)) {
-        markers.push({ time: r.time, position: 'belowBar', shape: 'arrowUp', color: '#e91e63', text: 'BUY' });
-      }
-      prevOver = over;
+      const k = monday(r.time), w = m.get(k);
+      if (!w) m.set(k, { ...r, time: k });
+      else { w.high = Math.max(w.high, r.high); w.low = Math.min(w.low, r.low);
+             w.close = r.close; w.vix = Math.max(w.vix, r.vix); }
     }
-    series.setMarkers(markers);
+    return [...m.values()];
+  }
+
+  function render() {
+    let rows = baseRows.slice();
+    if (liveRow) {
+      const last = rows[rows.length - 1];
+      if (last && last.time === liveRow.time) rows[rows.length - 1] = liveRow;
+      else if (!last || liveRow.time > last.time) rows.push(liveRow);
+    }
+    if (!rows.length) return;
+    const data = tf === 'W' ? weekly(rows) : rows;
+    const level = parseFloat($('lvl').value) || 30;
+    const onlyFirst = $('first').checked;
+
+    candles.setData(data.map(r => ({ time: r.time, open: r.open, high: r.high, low: r.low, close: r.close })));
+    vixLine.setData(data.map(r => ({ time: r.time, value: r.vix })));
+
+    if (levelLine) vixLine.removePriceLine(levelLine);
+    levelLine = vixLine.createPriceLine({ price: level, color: '#e91e63', lineWidth: 1, lineStyle: 2,
+                                          axisLabelVisible: true, title: 'VIX ' + level });
+
+    const markers = [];
+    let prev = false;
+    for (const r of data) {
+      const over = r.vix > level;
+      if (over && (!onlyFirst || !prev)) {
+        markers.push({ time: r.time, position: 'belowBar', shape: 'arrowUp', color: '#ff4081', text: 'BUY' });
+      }
+      prev = over;
+    }
+    candles.setMarkers(markers);
     if (firstDraw) { chart.timeScale().fitContent(); firstDraw = false; }
-    const last = rows[rows.length - 1];
-    info.textContent = `BUY ${markers.length}번 | ${liveText || '마지막 데이터: ' + last.time} | QQQ ${last.close} | VIX ${last.vix}`;
+
+    const l = data[data.length - 1];
+    $('info').textContent =
+      `BUY ${markers.length}번 | ${liveText || '마지막 데이터: ' + l.time} | QQQ ${l.close} | VIX ${l.vix}`;
   }
 
   // 야후 시세 (CORS 때문에 무료 중계 서버를 순서대로 시도)
@@ -80,45 +142,52 @@
   ];
   async function yahoo(symbol) {
     const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' +
-      encodeURIComponent(symbol) + '?interval=1d&range=5d';
-    let lastErr;
+      encodeURIComponent(symbol) + '?interval=1d&range=1d';
+    let err;
     for (const p of PROXIES) {
       try {
-        const r = await fetch(p(url));
-        const j = await r.json();
-        const m = j.chart.result[0].meta;
-        return { price: m.regularMarketPrice, time: m.regularMarketTime };
-      } catch (e) { lastErr = e; }
+        const j = await (await fetch(p(url))).json();
+        const res = j.chart.result[0], m = res.meta, q = res.indicators.quote[0];
+        const i = q.open.length - 1;
+        return { price: m.regularMarketPrice, time: m.regularMarketTime,
+                 open: q.open[i], high: m.regularMarketDayHigh, low: m.regularMarketDayLow };
+      } catch (e) { err = e; }
     }
-    throw lastErr;
+    throw err;
   }
-
   async function live() {
     try {
       const [q, v] = await Promise.all([yahoo('QQQ'), yahoo('^VIX')]);
       const day = new Date(q.time * 1000).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-      const rows = baseRows.slice();
-      const row = { time: day, close: +q.price.toFixed(2), vix: +v.price.toFixed(2) };
-      if (rows.length && rows[rows.length - 1].time === day) rows[rows.length - 1] = row;
-      else if (!rows.length || day > rows[rows.length - 1].time) rows.push(row);
-      const t = new Date(q.time * 1000).toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
+      const p = +q.price.toFixed(2);
+      liveRow = { time: day, open: +(q.open ?? p).toFixed(2), high: +(q.high ?? p).toFixed(2),
+                  low: +(q.low ?? p).toFixed(2), close: p, vix: +v.price.toFixed(2) };
+      const t = new Date(q.time * 1000).toLocaleTimeString('ko-KR',
+        { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
       liveText = `실시간 ${t}(KST)`;
-      render(rows);
     } catch (e) {
-      liveText = '실시간 실패(저장된 데이터 표시)';
-      if (baseRows.length) render(baseRows);
+      liveRow = null; liveText = '실시간 실패(저장된 데이터 표시)';
     }
+    render();
   }
+
+  $('btnD').onclick = () => { tf = 'D'; $('btnD').className = 'on'; $('btnW').className = ''; firstDraw = true; render(); };
+  $('btnW').onclick = () => { tf = 'W'; $('btnW').className = 'on'; $('btnD').className = ''; firstDraw = true; render(); };
+  $('lvl').oninput = render;
+  $('first').onchange = render;
 
   fetch('data.json?t=' + Date.now())
     .then(r => r.json())
     .then(rows => {
-      baseRows = rows;
-      render(baseRows);
+      baseRows = rows.map(r => ({
+        time: r.time, close: r.close, vix: r.vix,
+        open: r.open ?? r.close, high: r.high ?? r.close, low: r.low ?? r.close,
+      }));
+      render();
       live();
       setInterval(live, REFRESH_SEC * 1000);
     })
-    .catch(e => { info.textContent = 'data.json을 못 불러왔어: ' + e; });
+    .catch(e => { $('info').textContent = 'data.json을 못 불러왔어: ' + e; });
 </script>
 </body>
 </html>
