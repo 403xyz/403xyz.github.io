@@ -68,6 +68,7 @@ th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:
 </div>
 <script>
 (function(){
+var SHOWSUB=false;
 var UP='#e5484d',DOWN='#3b82f6',GOLD='#f2b84b',AX=70,AY=24,DAY=864e5;
 var STEP={'1d':DAY,'1w':7*DAY},KEY='ixic_draw_v1';
 var FR0=[0.56,0.22,0.22],MINF=[0.2,0.08,0.08];
@@ -161,7 +162,7 @@ function layout(){
   W=r.width;H=r.height;cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
   ctx.setTransform(dpr,0,0,dpr,0,0);pw=W-AX;geo();
 }
-function geo(){plotH=H-AY;H1=Math.round(plotH*fr[0]);H2=Math.round(plotH*fr[1]);H3=plotH-H1-H2;}
+function geo(){plotH=H-AY;if(!SHOWSUB){H1=plotH;H2=0;H3=0;return;}H1=Math.round(plotH*fr[0]);H2=Math.round(plotH*fr[1]);H3=plotH-H1-H2;}
 function resetView(){barW=pw<500?4:6;left=bars.length-pw/barW+6;}
 function xOf(i){return (i-left)*barW+barW/2;}
 function iOf(x){return (x-barW/2)/barW+left;}
@@ -173,7 +174,7 @@ function nice(range,cnt){var r0=range/cnt,p=Math.pow(10,Math.floor(Math.log10(r0
 function which(y){return y<H1?0:(y<H1+H2?1:(y<plotH?2:-1));}
 function sub(k){return k===1?{top:H1,h:H2,lo:0,hi:100}:{top:H1+H2,h:H3,lo:-0.25,hi:1.25};}
 function vOf(k,y){var s=sub(k);return s.lo+(s.top+s.h-y)/s.h*(s.hi-s.lo);}
-function divAt(p){if(Math.abs(p.y-H1)<=4)return 0;if(Math.abs(p.y-(H1+H2))<=4)return 1;return -1;}
+function divAt(p){if(!SHOWSUB)return -1;if(Math.abs(p.y-H1)<=4)return 0;if(Math.abs(p.y-(H1+H2))<=4)return 1;return -1;}
 function ensureManual(){if(!manual){manual=true;mMin=yMin;mMax=yMax;}}
 function zoomPrice(f,anchor){ensureManual();mMin=anchor-(anchor-mMin)*f;mMax=anchor+(mMax-anchor)*f;draw();}
 function setSize(act,k){
@@ -192,7 +193,7 @@ function mkBtn(txt,x,y,w,on,k,act){
   ctx.fillStyle=on?'#1a1405':'#d7dde8';ctx.font='11px sans-serif';ctx.textAlign='center';ctx.fillText(txt,x+w/2,y+13);ctx.textAlign='left';
   BTN.push({x:x,y:y,w:w,h:18,k:k,act:act});
 }
-function drawSub(k,lines,series,label){
+function drawSub(k,lines,series,label){if(!SHOWSUB)return;
   var s=sub(k),top=s.top,h=s.h,lo=s.lo,hi=s.hi;
   function y(v){return top+h-(v-lo)/(hi-lo)*h;}
   var a=Math.max(0,Math.floor(left)),z=Math.min(bars.length-1,Math.ceil(left+pw/barW));
@@ -285,7 +286,7 @@ function draw(){
   drawSub(1,[{v:T('S','rsi'),c:'#5a2f36',t:String(T('S','rsi'))},{v:T('B','rsi'),c:'#1f4a35',t:String(T('B','rsi'))}],[{k:'rsi',c:'#f2b84b'},{k:'k',c:'#6aa9ff'}],'RSI(금색) · 스토캐스틱 %K(파랑)');
   drawSub(2,[{v:T('S','pb'),c:'#5a2f36',t:String(T('S','pb'))},{v:T('B','pb'),c:'#1f4a35',t:String(T('B','pb'))}],[{k:'pb',c:'#d7dde8'}],'볼린저 %B');
   // --- 칸 경계선(끌어서 크기 조절) ---
-  [H1,H1+H2].forEach(function(yy){
+  (SHOWSUB?[H1,H1+H2]:[]).forEach(function(yy){
     ctx.strokeStyle='#3a4558';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,yy+0.5);ctx.lineTo(W,yy+0.5);ctx.stroke();
     ctx.fillStyle='#55627a';ctx.fillRect(pw/2-16,yy-1,32,3);
   });
