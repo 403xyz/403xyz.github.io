@@ -52,7 +52,7 @@ th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:
 </div>
 <div class="rules" id="rules"></div>
 <div class="toolbar">
-<label>봉 <select id="tf"><option value="1d">일봉</option><option value="1w">주봉</option></select></label><option value="1h">1&#49884;&#44036;&#48393;</option><option value="4h">4&#49884;&#44036;&#48393;</option>
+<label>봉 <select id="tf"><option value="1d">일봉</option><option value="1w">주봉</option><option value="1h">1&#49884;&#44036;&#48393;</option><option value="4h">4&#49884;&#44036;&#48393;</option></select></label>
 <span class="bar"></span>
 <button data-tool="none" class="on">이동</button><button data-tool="h">수평선</button><button data-tool="v">수직선</button><button data-tool="l">추세선</button><button data-tool="r">사각형</button><button data-tool="m">재기</button>
 <span class="bar"></span>
@@ -490,3 +490,8 @@ function loadIntra(){
   });
 }
 $('reload').onclick=function(){if(tf==='1h'||tf==='4h')loadIntra();else load();};
+cv.style.cursor='grab';
+window.addEventListener('resize',function(){if(!bars.length)return;layout();draw();});
+layout();load();
+})();
+</script></body></html>
