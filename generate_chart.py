@@ -73,7 +73,8 @@ TEMPLATE = r'''<!DOCTYPE html>
   .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px}
   .box{background:#171c26;border:1px solid #262d3b;border-radius:8px;padding:5px 8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   .box label{color:#9aa4b5}
-  input[type=text]{width:100px;background:#0f1218;color:#d7dce5;border:1px solid #333c4e;border-radius:4px;padding:4px 6px;font-size:13px}
+  input[type=number]{width:80px;background:#0f1218;color:#d7dce5;border:1px solid #333c4e;border-radius:4px;padding:4px 6px;font-size:13px}
+  input[type=range]{width:160px}
   button{background:#0f1218;color:#d7dce5;border:1px solid #333c4e;border-radius:4px;padding:5px 9px;cursor:pointer;font-size:13px}
   button:hover{border-color:#7d8798}
   button.on{background:#f2b84b;border-color:#f2b84b;color:#1a1405;font-weight:700}
@@ -91,10 +92,9 @@ TEMPLATE = r'''<!DOCTYPE html>
 
   <div class="row">
     <div class="box">
-      <label>Start</label>
-      <input type="text" id="start" value="-300d">
-      <button id="apply">Apply</button>
-      <span id="presets"></span>
+      <label>Start (days back)</label>
+      <input type="number" id="start" min="20" max="3000" step="1" value="300">
+      <input type="range" id="startr" min="20" max="3000" step="1" value="300">
       <span id="startInfo"></span>
     </div>
     <div class="box" id="assetBox"><label>Assets</label></div>
@@ -461,22 +461,27 @@ $("undo").onclick = function(){ drawings.pop(); save(); draw(); };
 $("clear").onclick = function(){ if(drawings.length && confirm("Delete all drawings?")){ drawings = []; save(); draw(); } };
 $("fit").onclick = function(){ fit(); draw(); };
 
+(function(){
+  const m = Math.floor((T[n-1] - T[0]) / DAY) - 1;
+  $("start").max = m; $("startr").max = m;
+})();
 function applyStart(){
-  const i = parseStart($("start").value);
+  let d = Math.round(parseFloat($("start").value));
+  if(isNaN(d)) return;
+  const maxD = Math.floor((T[n-1] - T[0]) / DAY) - 1;
+  d = Math.max(20, Math.min(maxD, d));
+  $("start").value = d; $("startr").value = d;
+  const target = T[n-1] - d * DAY;
+  let i = 0;
+  while(i < n - 1 && T[i] < target) i++;
+  s0 = Math.min(i, n - 2);
   const si = $("startInfo");
-  if(i === null){ si.style.color = "#ff4d4f"; si.textContent = "Invalid. Use -300d, -26w, -6m, -1y or 2025-01-01"; return; }
-  s0 = i; si.style.color = "#9aa4b5";
+  si.style.color = "#9aa4b5";
   si.textContent = "from " + D.dates[s0] + " (" + (n - 1 - s0) + " rows)";
   compute(); fit(); draw();
 }
-$("apply").onclick = applyStart;
-$("start").addEventListener("keydown", function(e){ if(e.key === "Enter") applyStart(); });
-[["-90d","-90d"],["-180d","-180d"],["-1y","-1y"],["-3y","-3y"],["All","2016-01-01"]].forEach(function(p){
-  const b = document.createElement("button");
-  b.textContent = p[0];
-  b.addEventListener("click", function(){ $("start").value = p[1]; applyStart(); });
-  $("presets").appendChild(b);
-});
+$("startr").addEventListener("input", function(){ $("start").value = $("startr").value; applyStart(); });
+$("start").addEventListener("change", applyStart);
 ["GOLD","NASDAQ","KOSPI"].forEach(function(k){
   const b = document.createElement("button");
   b.textContent = k; b.className = "on";
