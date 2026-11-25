@@ -11,9 +11,7 @@ OUTPUT_FILE = "divergence.html"
 TICKERS = {
     "BTC": "BTC-USD",
     "GOLD": "GC=F",
-    "SILVER": "SI=F",
     "NASDAQ": "^IXIC",
-    "S&P500": "^GSPC",
     "KOSPI": "^KS11",
 }
 
@@ -64,225 +62,436 @@ TEMPLATE = r'''<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BTC Divergence Strategy</title>
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<meta name="color-scheme" content="dark">
+<title>BTC Divergence</title>
 <style>
-  body{margin:0;background:#0f1218;color:#d7dce5;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-  .wrap{max-width:1400px;margin:0 auto;padding:12px}
-  h1{font-size:18px;margin:4px 0 10px}
-  .row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin-bottom:10px}
-  .box{background:#171c26;border:1px solid #262d3b;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .box label{font-size:13px;color:#9aa4b5}
-  input[type=number]{width:70px;background:#0f1218;color:#d7dce5;border:1px solid #333c4e;border-radius:4px;padding:4px}
-  input[type=range]{width:140px}
-  button{background:#0f1218;color:#d7dce5;border:1px solid #333c4e;border-radius:4px;padding:5px 10px;cursor:pointer;font-size:13px}
-  button.on{background:#2c5fd8;border-color:#2c5fd8;color:#fff}
-  #summary{font-size:13px;color:#9aa4b5;margin:6px 0 8px;line-height:1.6}
-  #chart{width:100%;height:820px}
-  .note{font-size:12px;color:#7d8798;margin-top:8px}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:#0f1218;color:#d7dce5;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:13px}
+  .page{height:100%;display:flex;flex-direction:column;padding:8px 10px;max-width:1500px;margin:0 auto}
+  h1{font-size:16px;margin:2px 0 8px}
+  h1 span{font-size:12px;color:#7d8798;font-weight:400;margin-left:8px}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px}
+  .box{background:#171c26;border:1px solid #262d3b;border-radius:8px;padding:5px 8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .box label{color:#9aa4b5}
+  input[type=text]{width:100px;background:#0f1218;color:#d7dce5;border:1px solid #333c4e;border-radius:4px;padding:4px 6px;font-size:13px}
+  button{background:#0f1218;color:#d7dce5;border:1px solid #333c4e;border-radius:4px;padding:5px 9px;cursor:pointer;font-size:13px}
+  button:hover{border-color:#7d8798}
+  button.on{background:#f2b84b;border-color:#f2b84b;color:#1a1405;font-weight:700}
+  #startInfo{color:#9aa4b5;font-size:12px}
+  #info{min-height:20px;margin:2px 0 6px;color:#9aa4b5;white-space:nowrap;overflow-x:auto}
+  #info b{color:#d7dce5}
+  #wrap{position:relative;flex:1;min-height:320px;background:#171c26;border:1px solid #262d3b;border-radius:6px;overflow:hidden}
+  canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;touch-action:none}
+  .note{font-size:11px;color:#7d8798;margin-top:6px;line-height:1.5}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>BTC vs Assets - Return Divergence (data until __UPDATED__)</h1>
+<div class="page">
+  <h1>BTC vs Assets - Return Divergence<span>data until __UPDATED__</span></h1>
 
   <div class="row">
     <div class="box">
-      <label>Rolling days N</label>
-      <input type="number" id="n" min="20" max="756" step="1" value="252">
-      <input type="range" id="nr" min="20" max="756" step="1" value="252">
+      <label>Start</label>
+      <input type="text" id="start" value="-300d">
+      <button id="apply">Apply</button>
+      <span id="presets"></span>
+      <span id="startInfo"></span>
     </div>
-    <div class="box">
-      <label>Upper Z</label>
-      <input type="number" id="up" min="0.5" max="4" step="0.1" value="2.0">
-      <input type="range" id="upr" min="0.5" max="4" step="0.1" value="2.0">
-    </div>
-    <div class="box">
-      <label>Lower Z</label>
-      <input type="number" id="lo" min="-4" max="-0.5" step="0.1" value="-1.5">
-      <input type="range" id="lor" min="-4" max="-0.5" step="0.1" value="-1.5">
-    </div>
+    <div class="box" id="assetBox"><label>Assets</label></div>
   </div>
 
   <div class="row">
-    <div class="box" id="assetBox"><label>Asset</label></div>
-    <div class="box" id="scaleBox"><label>BTC scale</label></div>
-    <div class="box" id="metricBox"><label>Bottom panel</label></div>
+    <div class="box">
+      <button data-tool="none" class="on">Move</button>
+      <button data-tool="h">H-line</button>
+      <button data-tool="v">V-line</button>
+      <button data-tool="l">Trend</button>
+      <button data-tool="r">Rect</button>
+      <button id="undo">Undo</button>
+      <button id="clear">Clear all</button>
+      <button id="fit">Fit view</button>
+    </div>
   </div>
 
-  <div id="summary"></div>
-  <div id="chart"></div>
+  <div id="info"></div>
+  <div id="wrap"><canvas id="cv"></canvas></div>
   <div class="note">
-    BUY = asset buy / BTC sell (BTC looks overheated, Z at or above upper). SELL = asset sell / BTC buy (BTC looks cheap, Z at or below lower).
-    Mean and std of the spread use only data up to each day. Weekdays only; holidays filled with previous value.
-    This is an experiment, not investment advice.
+    Lines show return since the start date (start = 0%). Gap = highest return minus lowest return (percentage points).
+    Idea: sell the highest, buy the lowest when the gap is wide. Wheel = zoom, drag = move, drag the line between panels = resize.
+    Drawings are saved in this browser (price positions are in % from the start date). Experiment only, not investment advice.
   </div>
 </div>
 
 <script>
 const D = __DATA__;
-const ASSETS = ["GOLD","SILVER","NASDAQ","S&P500","KOSPI"];
-const COLORS = {"GOLD":"#f5c542","SILVER":"#b0b8c4","NASDAQ":"#4da3ff","S&P500":"#ff8c42","KOSPI":"#c77dff"};
-const MIN_OBS = 60;
-const ZWIN = 504;
-const st = {asset:"ALL", scale:"log", metric:"z"};
+const NAMES = ["BTC","GOLD","NASDAQ","KOSPI"];
+const COL = {"BTC":"#f7931a","GOLD":"#f5c542","NASDAQ":"#4da3ff","KOSPI":"#c77dff"};
+const DAY = 864e5, AX = 92, AY = 24, GOLD = "#f2b84b", KEY = "div_draw_v1";
+const T = D.dates.map(function(s){ return Date.parse(s + "T00:00:00Z"); });
+const n = T.length;
+const $ = function(i){ return document.getElementById(i); };
+const cv = $("cv"), ctx = cv.getContext("2d"), wrap = $("wrap");
 
-function calc(name, N, up, lo){
-  const n = D.dates.length, b = D.BTC, a = D[name];
-  const spread = new Array(n).fill(null);
-  const mean = new Array(n).fill(null);
-  const std = new Array(n).fill(null);
-  const z = new Array(n).fill(null);
-  const sigs = [];
-  let sum = 0, sq = 0, last = 0;
-  for(let i = N; i < n; i++){
-    const s = ((b[i]/b[i-N] - 1) - (a[i]/a[i-N] - 1)) * 100;
-    spread[i] = s; sum += s; sq += s*s;
-    const k = i - N + 1;
-    if(k > ZWIN){ const o = spread[i - ZWIN]; sum -= o; sq -= o*o; }
-    const cnt = Math.min(k, ZWIN);
-    if(cnt >= MIN_OBS){
-      const m = sum/cnt;
-      const sd = Math.sqrt(Math.max(sq/cnt - m*m, 0));
-      mean[i] = m; std[i] = sd;
-      if(sd > 0){
-        const zz = (s - m)/sd;
-        z[i] = zz;
-        if(zz >= up && last !== 1){ sigs.push({i:i, type:"BUY", z:zz}); last = 1; }
-        else if(zz <= lo && last !== -1){ sigs.push({i:i, type:"SELL", z:zz}); last = -1; }
-      }
+let W = 0, H = 0, pw = 0, dpr = 1, plotH = 0, H1 = 0, H2 = 0, fr = 0.68;
+let left = 0, barW = 2, yMin = 0, yMax = 1, g2Max = 1, manual = false, mMin = 0, mMax = 1;
+let mouse = null, pan = null, axisDrag = null, divDrag = null, tool = "none", draft = null, drawings = [];
+let s0 = 0, ret = {}, gap = [], hiN = [], loN = [];
+const vis = {GOLD: true, NASDAQ: true, KOSPI: true};
+
+function active(){ return NAMES.filter(function(k){ return k === "BTC" || vis[k]; }); }
+function fp(v){ return (v >= 0 ? "+" : "") + v.toFixed(1) + "%"; }
+
+function parseStart(txt){
+  txt = txt.trim().toLowerCase().replace(/\s+/g, "");
+  const lastT = T[n-1];
+  let target;
+  const m = txt.match(/^-?(\d+)(d|w|m|y)$/);
+  if(m){
+    const k = parseInt(m[1], 10);
+    if(m[2] === "d") target = lastT - k * DAY;
+    else if(m[2] === "w") target = lastT - k * 7 * DAY;
+    else {
+      const d = new Date(lastT);
+      if(m[2] === "m") d.setUTCMonth(d.getUTCMonth() - k); else d.setUTCFullYear(d.getUTCFullYear() - k);
+      target = d.getTime();
+    }
+  } else if(/^\d{4}-\d{2}-\d{2}$/.test(txt)){
+    target = Date.parse(txt + "T00:00:00Z");
+    if(isNaN(target)) return null;
+  } else return null;
+  let i = 0;
+  while(i < n - 1 && T[i] < target) i++;
+  return Math.min(i, n - 2);
+}
+
+function compute(){
+  const act = active();
+  NAMES.forEach(function(k){
+    const base = D[k][s0];
+    ret[k] = D[k].map(function(v, i){ return i < s0 ? null : (v / base - 1) * 100; });
+  });
+  gap = new Array(n).fill(null); hiN = new Array(n).fill(""); loN = new Array(n).fill("");
+  for(let i = s0; i < n; i++){
+    let mx = -1e18, mn = 1e18, hn = "", ln = "";
+    act.forEach(function(k){
+      const v = ret[k][i];
+      if(v > mx){ mx = v; hn = k; }
+      if(v < mn){ mn = v; ln = k; }
+    });
+    gap[i] = mx - mn; hiN[i] = hn; loN[i] = ln;
+  }
+}
+
+// ===== coordinates =====
+function xOf(i){ return (i - left) * barW + barW / 2; }
+function iOf(x){ return (x - barW / 2) / barW + left; }
+function yOf(p){ return H1 - (p - yMin) / (yMax - yMin) * H1; }
+function pOf(y){ return yMin + (H1 - y) / H1 * (yMax - yMin); }
+function y2Of(v){ return H1 + H2 - 4 - (v / g2Max) * (H2 - 18); }
+function v2Of(y){ return (H1 + H2 - 4 - y) / (H2 - 18) * g2Max; }
+function tToI(t){
+  if(t >= T[n-1]) return n - 1 + (t - T[n-1]) / DAY;
+  if(t <= T[0]) return (t - T[0]) / DAY;
+  let lo = 0, hi = n - 1;
+  while(hi - lo > 1){ const m = (lo + hi) >> 1; if(T[m] <= t) lo = m; else hi = m; }
+  return lo + (t - T[lo]) / (T[lo+1] - T[lo]);
+}
+function iToT(i){
+  if(i <= 0) return T[0] + i * DAY;
+  if(i >= n - 1) return T[n-1] + (i - n + 1) * DAY;
+  const lo = Math.floor(i), f = i - lo;
+  return T[lo] + f * (T[lo+1] - T[lo]);
+}
+function px(t){ return xOf(tToI(t)); }
+function nice(range, cnt){
+  const r0 = range / cnt, p = Math.pow(10, Math.floor(Math.log10(r0))), f = r0 / p;
+  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p;
+}
+function layout(){
+  const r = wrap.getBoundingClientRect();
+  dpr = window.devicePixelRatio || 1;
+  W = r.width; H = r.height;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  pw = W - AX; geo();
+}
+function geo(){ plotH = H - AY; H1 = Math.round(plotH * fr); H2 = plotH - H1; }
+function clampView(){
+  const v = pw / barW;
+  left = Math.max(s0 - 3, Math.min(left, n - v + 10));
+}
+function fit(){
+  manual = false;
+  barW = Math.max(0.2, pw / (n - s0 + 6));
+  left = s0 - 1;
+}
+function ensureManual(){ if(!manual){ manual = true; mMin = yMin; mMax = yMax; } }
+
+// ===== drawing helpers =====
+function tag(text, y, bg, fg){
+  ctx.font = "11px sans-serif"; ctx.fillStyle = bg; ctx.fillRect(pw, y - 9, AX, 18);
+  ctx.fillStyle = fg; ctx.textAlign = "left"; ctx.fillText(text, pw + 5, y + 4);
+}
+function plotSeries(arr, col, w, yf, a, z){
+  ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath();
+  let st = false;
+  for(let i = a; i <= z; i++){
+    const v = arr[i];
+    if(v == null){ st = false; continue; }
+    const x = xOf(i), y = yf(v);
+    if(st) ctx.lineTo(x, y); else { ctx.moveTo(x, y); st = true; }
+  }
+  ctx.stroke();
+}
+function drawShape(d, isDraft){
+  ctx.strokeStyle = GOLD; ctx.lineWidth = 1.5; ctx.setLineDash(isDraft ? [5,4] : []);
+  if(d.k === "h"){
+    const y = Math.round(yOf(d.p)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(pw, y); ctx.stroke();
+  } else if(d.k === "v"){
+    const x = Math.round(px(d.t)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H1); ctx.stroke();
+  } else if(d.k === "l"){
+    ctx.beginPath(); ctx.moveTo(px(d.t1), yOf(d.p1)); ctx.lineTo(px(d.t2), yOf(d.p2)); ctx.stroke();
+  } else if(d.k === "r"){
+    const x1 = px(d.t1), y1 = yOf(d.p1), x2 = px(d.t2), y2 = yOf(d.p2);
+    ctx.fillStyle = "rgba(242,184,75,0.12)";
+    ctx.fillRect(Math.min(x1,x2), Math.min(y1,y2), Math.abs(x2-x1), Math.abs(y2-y1));
+    ctx.strokeRect(Math.min(x1,x2), Math.min(y1,y2), Math.abs(x2-x1), Math.abs(y2-y1));
+  }
+  ctx.setLineDash([]); ctx.lineWidth = 1;
+}
+
+function draw(){
+  ctx.clearRect(0, 0, W, H);
+  if(!W || !H) return;
+  clampView(); geo();
+  const act = active();
+  const a = Math.max(s0, Math.floor(left)), z = Math.min(n - 1, Math.ceil(left + pw / barW));
+  const a2 = Math.max(s0, a - 1), z2 = Math.min(n - 1, z + 1);
+  let lo = 0, hi = 0, gm = 0;
+  for(let i = a; i <= z; i++){
+    act.forEach(function(k){ const v = ret[k][i]; if(v < lo) lo = v; if(v > hi) hi = v; });
+    if(gap[i] > gm) gm = gap[i];
+  }
+  const pad = (hi - lo) * 0.08 || 1;
+  if(manual){ yMin = mMin; yMax = mMax; } else { yMin = lo - pad; yMax = hi + pad; }
+  g2Max = gm > 0 ? gm * 1.1 : 1;
+
+  // ---- top panel ----
+  const step = nice(yMax - yMin, 7), dec = step >= 1 ? 0 : (step >= 0.1 ? 1 : 2);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, pw, H1); ctx.clip();
+  ctx.lineWidth = 1; ctx.strokeStyle = "#222b39";
+  for(let p = Math.ceil(yMin / step) * step; p < yMax; p += step){
+    const y = Math.round(yOf(p)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(pw, y); ctx.stroke();
+  }
+  const zy = Math.round(yOf(0)) + 0.5;
+  ctx.setLineDash([5,4]); ctx.strokeStyle = "#6b768a";
+  ctx.beginPath(); ctx.moveTo(0, zy); ctx.lineTo(pw, zy); ctx.stroke(); ctx.setLineDash([]);
+  act.filter(function(k){ return k !== "BTC"; }).forEach(function(k){ plotSeries(ret[k], COL[k], 1.6, yOf, a2, z2); });
+  plotSeries(ret.BTC, COL.BTC, 2.8, yOf, a2, z2);
+  drawings.forEach(function(d){ drawShape(d, false); });
+  if(draft) drawShape(draft, true);
+  ctx.restore();
+
+  ctx.fillStyle = "#8793a6"; ctx.font = "11px sans-serif"; ctx.textAlign = "left";
+  for(let p = Math.ceil(yMin / step) * step; p < yMax; p += step){ ctx.fillText(p.toFixed(dec) + "%", pw + 6, yOf(p) + 4); }
+  // legend
+  let lx = 8;
+  ctx.font = "12px sans-serif";
+  ctx.fillStyle = "#8793a6"; ctx.fillText("Return since " + D.dates[s0] + " :", lx, 16); lx += 150;
+  act.forEach(function(k){
+    ctx.fillStyle = COL[k]; ctx.fillRect(lx, 7, 10, 10);
+    ctx.fillText(k, lx + 14, 16); lx += ctx.measureText(k).width + 30;
+  });
+  if(manual){ ctx.fillStyle = GOLD; ctx.fillText("manual", pw + 6, 12); }
+  // end tags (right side)
+  const tags = act.map(function(k){ return {k: k, y: yOf(ret[k][n-1]), v: ret[k][n-1]}; })
+    .filter(function(t){ return t.y > 8 && t.y < H1 - 8; })
+    .sort(function(p, q){ return p.y - q.y; });
+  for(let i = 1; i < tags.length; i++){ if(tags[i].y - tags[i-1].y < 17) tags[i].y = tags[i-1].y + 17; }
+  tags.forEach(function(t){ tag(t.k + " " + fp(t.v), t.y, COL[t.k], "#10141b"); });
+  drawings.forEach(function(d){
+    if(d.k === "h"){ const hy = yOf(d.p); if(hy > 0 && hy < H1) tag(d.p.toFixed(1) + "%", hy, GOLD, "#1a1405"); }
+  });
+
+  // ---- bottom panel (gap) ----
+  ctx.save(); ctx.beginPath(); ctx.rect(0, H1 + 1, pw, H2 - 1); ctx.clip();
+  const step2 = nice(g2Max, 3);
+  ctx.strokeStyle = "#222b39"; ctx.lineWidth = 1;
+  for(let v = 0; v < g2Max; v += step2){
+    const y = Math.round(y2Of(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(pw, y); ctx.stroke();
+  }
+  if(z2 >= a2){
+    ctx.beginPath(); ctx.moveTo(xOf(a2), y2Of(0));
+    for(let i = a2; i <= z2; i++) ctx.lineTo(xOf(i), y2Of(gap[i]));
+    ctx.lineTo(xOf(z2), y2Of(0)); ctx.closePath();
+    ctx.fillStyle = "rgba(242,184,75,0.12)"; ctx.fill();
+    plotSeries(gap, GOLD, 1.4, y2Of, a2, z2);
+  }
+  ctx.restore();
+  ctx.fillStyle = "#8793a6"; ctx.font = "11px sans-serif"; ctx.textAlign = "left";
+  for(let v = 0; v < g2Max; v += step2){ ctx.fillText(v.toFixed(step2 >= 1 ? 0 : 1) + "pp", pw + 6, y2Of(v) + 4); }
+  ctx.fillText("Gap = highest - lowest return (pp)", 8, H1 + 16);
+  const gy = y2Of(gap[n-1]);
+  if(gy > H1 + 8 && gy < H1 + H2 - 4) tag(gap[n-1].toFixed(1) + "pp", gy, GOLD, "#1a1405");
+
+  // ---- divider + axis lines ----
+  ctx.strokeStyle = "#3a4558"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, H1 + 0.5); ctx.lineTo(W, H1 + 0.5); ctx.stroke();
+  ctx.fillStyle = "#55627a"; ctx.fillRect(pw / 2 - 16, H1 - 1, 32, 3);
+  ctx.strokeStyle = "#2a3342";
+  ctx.beginPath(); ctx.moveTo(pw + 0.5, 0); ctx.lineTo(pw + 0.5, plotH); ctx.stroke();
+
+  // ---- date axis ----
+  ctx.fillStyle = "#171c26"; ctx.fillRect(0, plotH, W, AY);
+  ctx.strokeStyle = "#2a3342"; ctx.beginPath(); ctx.moveTo(0, plotH + 0.5); ctx.lineTo(pw, plotH + 0.5); ctx.stroke();
+  ctx.fillStyle = "#8793a6"; ctx.textAlign = "center"; ctx.font = "11px sans-serif";
+  let lk = "", lastX = -999;
+  for(let i = a; i <= z; i++){
+    const k2 = D.dates[i].slice(0, 7), xx = xOf(i);
+    if(k2 !== lk){
+      lk = k2;
+      if(xx > 20 && xx < pw - 20 && xx - lastX >= 56){ ctx.fillText(k2.slice(2), xx, plotH + 16); lastX = xx; }
     }
   }
-  return {spread, mean, std, z, sigs};
-}
+  ctx.textAlign = "left";
 
-function readNum(id, fallback){
-  const v = parseFloat(document.getElementById(id).value);
-  return isNaN(v) ? fallback : v;
-}
-
-function render(){
-  let N = Math.round(readNum("n", 252));
-  N = Math.min(756, Math.max(20, N));
-  const up = readNum("up", 2.0);
-  const lo = readNum("lo", -1.5);
-  const show = st.asset === "ALL" ? ASSETS : [st.asset];
-
-  const traces = [];
-  traces.push({
-    x: D.dates, y: D.BTC, type: "scatter", mode: "lines", name: "BTC",
-    line: {color:"#f7931a", width:1.5}, xaxis: "x", yaxis: "y"
-  });
-
-  const summary = [];
-  show.forEach(function(name){
-    const r = calc(name, N, up, lo);
-    const col = COLORS[name];
-
-    if(r.sigs.length){
-      traces.push({
-        x: r.sigs.map(function(s){return D.dates[s.i];}),
-        y: r.sigs.map(function(s){return D.BTC[s.i];}),
-        type: "scatter", mode: "markers+text",
-        name: name + " signals",
-        text: r.sigs.map(function(s){return name + " " + s.type;}),
-        textposition: r.sigs.map(function(s){return s.type === "BUY" ? "top center" : "bottom center";}),
-        textfont: {size: 10, color: col},
-        marker: {
-          size: 11,
-          symbol: r.sigs.map(function(s){return s.type === "BUY" ? "triangle-down" : "triangle-up";}),
-          color: r.sigs.map(function(s){return s.type === "BUY" ? "#ff4d4f" : "#2ecc71";}),
-          line: {color: col, width: 1.5}
-        },
-        hovertext: r.sigs.map(function(s){
-          return D.dates[s.i] + "<br>" + name + " " + s.type + " / BTC " + (s.type === "BUY" ? "SELL" : "BUY") + "<br>Z=" + s.z.toFixed(2);
-        }),
-        hoverinfo: "text", xaxis: "x", yaxis: "y"
-      });
-      const l = r.sigs[r.sigs.length - 1];
-      summary.push(name + " " + l.type + " (" + D.dates[l.i] + ")");
-    } else {
-      summary.push(name + ": none");
-    }
-
-    const series = st.metric === "z" ? r.z : r.spread;
-    traces.push({
-      x: D.dates, y: series, type: "scatter", mode: "lines", name: name,
-      line: {color: col, width: 1.2}, xaxis: "x2", yaxis: "y2", connectgaps: false
-    });
-
-    if(st.metric === "s" && show.length === 1){
-      traces.push({
-        x: D.dates, y: r.mean.map(function(m, i){return m === null ? null : m + up * r.std[i];}),
-        type: "scatter", mode: "lines", name: "mean + upper*std",
-        line: {color:"#ff4d4f", width:1, dash:"dash"}, xaxis: "x2", yaxis: "y2"
-      });
-      traces.push({
-        x: D.dates, y: r.mean.map(function(m, i){return m === null ? null : m + lo * r.std[i];}),
-        type: "scatter", mode: "lines", name: "mean + lower*std",
-        line: {color:"#2ecc71", width:1, dash:"dash"}, xaxis: "x2", yaxis: "y2"
-      });
-    }
-  });
-
-  const shapes = [];
-  if(st.metric === "z"){
-    shapes.push({type:"line", xref:"paper", x0:0, x1:1, yref:"y2", y0:up, y1:up, line:{color:"#ff4d4f", width:1, dash:"dash"}});
-    shapes.push({type:"line", xref:"paper", x0:0, x1:1, yref:"y2", y0:lo, y1:lo, line:{color:"#2ecc71", width:1, dash:"dash"}});
-    shapes.push({type:"line", xref:"paper", x0:0, x1:1, yref:"y2", y0:0, y1:0, line:{color:"#555", width:1}});
+  // ---- crosshair ----
+  let ci = n - 1;
+  const inPlot = mouse && mouse.x >= 0 && mouse.x < pw && mouse.y >= 0 && mouse.y < plotH;
+  if(inPlot){
+    ci = Math.max(s0, Math.min(n - 1, Math.round(iOf(mouse.x))));
+    const cx = Math.round(xOf(ci)) + 0.5, my = Math.round(mouse.y) + 0.5;
+    ctx.setLineDash([4,4]); ctx.strokeStyle = "#7d8aa0"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, my); ctx.lineTo(pw, my); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, plotH); ctx.stroke();
+    ctx.setLineDash([]);
+    tag(mouse.y < H1 ? fp(pOf(mouse.y)) : Math.max(0, v2Of(mouse.y)).toFixed(1) + "pp", mouse.y, "#e8edf5", "#10141b");
+    ctx.font = "11px sans-serif";
+    const t = D.dates[ci], tw = ctx.measureText(t).width + 12;
+    ctx.fillStyle = "#e8edf5"; ctx.fillRect(Math.min(Math.max(0, cx - tw / 2), pw - tw), plotH + 2, tw, AY - 4);
+    ctx.fillStyle = "#10141b"; ctx.textAlign = "center";
+    ctx.fillText(t, Math.min(Math.max(tw / 2, cx), pw - tw / 2), plotH + 16); ctx.textAlign = "left";
   }
-
-  const layout = {
-    paper_bgcolor: "#0f1218", plot_bgcolor: "#0f1218",
-    font: {color: "#d7dce5", size: 12},
-    margin: {l: 60, r: 20, t: 10, b: 40},
-    legend: {orientation: "h", y: 1.06},
-    hovermode: "x unified",
-    uirevision: "keep",
-    xaxis: {anchor: "y", gridcolor: "#1d2330", rangeslider: {visible: false}},
-    xaxis2: {anchor: "y2", matches: "x", gridcolor: "#1d2330"},
-    yaxis: {domain: [0.38, 1], type: st.scale, title: "BTC (USD)", gridcolor: "#1d2330"},
-    yaxis2: {domain: [0, 0.32], title: st.metric === "z" ? "Z-Score" : "Spread (%)", gridcolor: "#1d2330", zeroline: false},
-    shapes: shapes
-  };
-
-  document.getElementById("summary").textContent = "Last signals: " + summary.join("  |  ");
-  Plotly.react("chart", traces, layout, {responsive: true});
+  updateInfo(ci);
 }
 
-function bindPair(numId, rangeId){
-  const num = document.getElementById(numId);
-  const rng = document.getElementById(rangeId);
-  rng.addEventListener("input", function(){ num.value = rng.value; render(); });
-  num.addEventListener("input", function(){
-    const v = parseFloat(num.value);
-    if(!isNaN(v)){ rng.value = v; render(); }
+function updateInfo(i){
+  const act = active();
+  let h = "<b>" + D.dates[i] + "</b>";
+  act.forEach(function(k){ h += " &nbsp; <span style='color:" + COL[k] + "'>" + k + " " + fp(ret[k][i]) + "</span>"; });
+  h += " &nbsp; Gap <b>" + gap[i].toFixed(1) + "pp</b>";
+  h += " &nbsp; <b style='color:#ff4d4f'>SELL " + hiN[i] + "</b> / <b style='color:#2ecc71'>BUY " + loN[i] + "</b>";
+  $("info").innerHTML = h;
+}
+
+// ===== mouse / touch =====
+function pos(e){ const r = cv.getBoundingClientRect(); return {x: e.clientX - r.left, y: e.clientY - r.top}; }
+function nearDiv(p){ return Math.abs(p.y - H1) <= 5 && p.x < W; }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(drawings)); }catch(e){} }
+try{ const a0 = JSON.parse(localStorage.getItem(KEY) || "[]"); if(Array.isArray(a0)) drawings = a0; }catch(e){}
+
+cv.addEventListener("pointerdown", function(e){
+  const p = pos(e);
+  cv.setPointerCapture(e.pointerId);
+  if(nearDiv(p)){ divDrag = {y: p.y, f: fr}; return; }
+  if(p.x >= pw && p.y < H1){ ensureManual(); axisDrag = {y: p.y, min: mMin, max: mMax}; return; }
+  if(p.y >= plotH) return;
+  mouse = p;
+  const inTop = p.y < H1 && p.x < pw;
+  if(tool === "none" || !inTop){ pan = {x: p.x, y: p.y, left: left, min: mMin, max: mMax, top: p.y < H1}; return; }
+  if(tool === "h"){ drawings.push({k: "h", p: pOf(p.y)}); save(); draw(); }
+  else if(tool === "v"){ drawings.push({k: "v", t: iToT(Math.round(iOf(p.x)))}); save(); draw(); }
+  else { const t0 = iToT(iOf(p.x)), p0 = pOf(p.y); draft = {k: tool, t1: t0, p1: p0, t2: t0, p2: p0}; }
+});
+cv.addEventListener("pointermove", function(e){
+  const p = pos(e); mouse = p;
+  if(divDrag){ fr = Math.max(0.2, Math.min(0.85, divDrag.f + (p.y - divDrag.y) / plotH)); draw(); return; }
+  if(axisDrag){
+    const f = Math.exp((p.y - axisDrag.y) * 0.006), c = (axisDrag.min + axisDrag.max) / 2;
+    mMin = c - (c - axisDrag.min) * f; mMax = c + (axisDrag.max - c) * f; draw(); return;
+  }
+  if(!pan && !draft){ cv.style.cursor = (nearDiv(p) || (p.x >= pw && p.y < H1)) ? "ns-resize" : (tool === "none" ? "grab" : "crosshair"); }
+  if(pan){
+    left = pan.left - (p.x - pan.x) / barW;
+    if(manual && pan.top){ const dp = (p.y - pan.y) / H1 * (pan.max - pan.min); mMin = pan.min + dp; mMax = pan.max + dp; }
+  } else if(draft){ draft.t2 = iToT(iOf(p.x)); draft.p2 = pOf(p.y); }
+  draw();
+});
+function endPointer(){
+  divDrag = null; axisDrag = null; pan = null;
+  if(draft){
+    const d = draft; draft = null;
+    if(Math.abs(px(d.t2) - px(d.t1)) + Math.abs(yOf(d.p2) - yOf(d.p1)) > 4){ drawings.push(d); save(); }
+  }
+  draw();
+}
+cv.addEventListener("pointerup", endPointer);
+cv.addEventListener("pointercancel", endPointer);
+cv.addEventListener("pointerleave", function(e){
+  if(e.pointerType === "mouse" && !pan && !draft && !axisDrag && !divDrag){ mouse = null; draw(); }
+});
+cv.addEventListener("dblclick", function(e){ const p = pos(e); if(p.x >= pw && p.y < H1){ manual = false; draw(); } });
+cv.addEventListener("wheel", function(e){
+  e.preventDefault();
+  const p = pos(e);
+  if((p.x >= pw && p.y < H1) || e.shiftKey){
+    ensureManual();
+    const f = e.deltaY < 0 ? 0.88 : 1 / 0.88, an = p.y < H1 ? pOf(p.y) : (yMin + yMax) / 2;
+    mMin = an - (an - mMin) * f; mMax = an + (mMax - an) * f; draw(); return;
+  }
+  const idx = iOf(p.x);
+  barW = Math.max(0.2, Math.min(60, barW * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+  left = idx - (p.x - barW / 2) / barW;
+  draw();
+}, {passive: false});
+
+// ===== buttons =====
+document.querySelectorAll("[data-tool]").forEach(function(btn){
+  btn.addEventListener("click", function(){
+    tool = btn.getAttribute("data-tool");
+    document.querySelectorAll("[data-tool]").forEach(function(b){ b.classList.toggle("on", b === btn); });
+    cv.style.cursor = tool === "none" ? "grab" : "crosshair"; draft = null; draw();
   });
-}
+});
+$("undo").onclick = function(){ drawings.pop(); save(); draw(); };
+$("clear").onclick = function(){ if(drawings.length && confirm("Delete all drawings?")){ drawings = []; save(); draw(); } };
+$("fit").onclick = function(){ fit(); draw(); };
 
-function makeButtons(boxId, items, key){
-  const box = document.getElementById(boxId);
-  items.forEach(function(it){
-    const b = document.createElement("button");
-    b.textContent = it.label;
-    b.dataset.v = it.value;
-    if(st[key] === it.value) b.className = "on";
-    b.addEventListener("click", function(){
-      st[key] = it.value;
-      box.querySelectorAll("button").forEach(function(x){ x.className = (x.dataset.v === it.value) ? "on" : ""; });
-      render();
-    });
-    box.appendChild(b);
+function applyStart(){
+  const i = parseStart($("start").value);
+  const si = $("startInfo");
+  if(i === null){ si.style.color = "#ff4d4f"; si.textContent = "Invalid. Use -300d, -26w, -6m, -1y or 2025-01-01"; return; }
+  s0 = i; si.style.color = "#9aa4b5";
+  si.textContent = "from " + D.dates[s0] + " (" + (n - 1 - s0) + " rows)";
+  compute(); fit(); draw();
+}
+$("apply").onclick = applyStart;
+$("start").addEventListener("keydown", function(e){ if(e.key === "Enter") applyStart(); });
+[["-90d","-90d"],["-180d","-180d"],["-1y","-1y"],["-3y","-3y"],["All","2016-01-01"]].forEach(function(p){
+  const b = document.createElement("button");
+  b.textContent = p[0];
+  b.addEventListener("click", function(){ $("start").value = p[1]; applyStart(); });
+  $("presets").appendChild(b);
+});
+["GOLD","NASDAQ","KOSPI"].forEach(function(k){
+  const b = document.createElement("button");
+  b.textContent = k; b.className = "on";
+  b.addEventListener("click", function(){
+    if(vis[k] && !(vis.GOLD && vis.NASDAQ && vis.KOSPI ? true : (["GOLD","NASDAQ","KOSPI"].filter(function(x){ return vis[x]; }).length > 1))) return;
+    vis[k] = !vis[k]; b.className = vis[k] ? "on" : "";
+    compute(); draw();
   });
-}
+  $("assetBox").appendChild(b);
+});
 
-bindPair("n", "nr");
-bindPair("up", "upr");
-bindPair("lo", "lor");
-makeButtons("assetBox", [{label:"ALL", value:"ALL"}].concat(ASSETS.map(function(a){return {label:a, value:a};})), "asset");
-makeButtons("scaleBox", [{label:"Log", value:"log"}, {label:"Linear", value:"linear"}], "scale");
-makeButtons("metricBox", [{label:"Z-Score", value:"z"}, {label:"Spread %", value:"s"}], "metric");
-render();
+window.addEventListener("resize", function(){ layout(); draw(); });
+if(window.ResizeObserver){ new ResizeObserver(function(){ layout(); draw(); }).observe(wrap); }
+layout();
+applyStart();
 </script>
 </body>
 </html>
