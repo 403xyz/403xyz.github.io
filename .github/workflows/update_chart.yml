@@ -30,13 +30,13 @@ jobs:
 
       - name: Commit and push
         run: |
-          if git diff --quiet -- divergence.html; then
+          git add divergence.html
+          if git diff --cached --quiet; then
             echo "No changes"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add divergence.html
           git commit -m "Update divergence chart"
           git pull --rebase origin main
           git push
