@@ -78,6 +78,12 @@ TEMPLATE = r'''<!DOCTYPE html>
   button{background:#0f1218;color:#d7dce5;border:1px solid #333c4e;border-radius:4px;padding:5px 9px;cursor:pointer;font-size:13px}
   button:hover{border-color:#7d8798}
   button.on{background:#f2b84b;border-color:#f2b84b;color:#1a1405;font-weight:700}
+  .toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+  .toolbar .sp{flex:1}
+  .toolbar .bar{width:1px;height:22px;background:#2a3342;margin:0 2px}
+  .toolbar button{background:#171d27;border:1px solid #2a3342;border-radius:6px;padding:6px 11px;font-size:14px}
+  .toolbar button:hover{border-color:#8793a6}
+  .toolbar button.on{background:#f2b84b;border-color:#f2b84b;color:#1a1405;font-weight:700}
   #startInfo{color:#9aa4b5;font-size:12px}
   #info{min-height:20px;margin:2px 0 6px;color:#9aa4b5;white-space:nowrap;overflow-x:auto}
   #info b{color:#d7dce5}
@@ -100,24 +106,25 @@ TEMPLATE = r'''<!DOCTYPE html>
     <div class="box" id="assetBox"><label>Assets</label></div>
   </div>
 
-  <div class="row">
-    <div class="box">
-      <button data-tool="none" class="on">Move</button>
-      <button data-tool="h">H-line</button>
-      <button data-tool="v">V-line</button>
-      <button data-tool="l">Trend</button>
-      <button data-tool="r">Rect</button>
-      <button id="undo">Undo</button>
-      <button id="clear">Clear all</button>
-      <button id="fit">Fit view</button>
-    </div>
+  <div class="toolbar">
+    <button data-tool="none" class="on">&#51060;&#46041;</button>
+    <button data-tool="h">&#49688;&#54217;&#49440;</button>
+    <button data-tool="v">&#49688;&#51649;&#49440;</button>
+    <button data-tool="l">&#52628;&#49464;&#49440;</button>
+    <button data-tool="r">&#49324;&#44033;&#54805;</button>
+    <button data-tool="m">&#51116;&#44592;</button>
+    <span class="bar"></span>
+    <button id="undo">&#47560;&#51648;&#47561; &#51648;&#50864;&#44592;</button>
+    <button id="clear">&#51204;&#52404; &#51648;&#50864;&#44592;</button>
+    <span class="sp"></span>
+    <button id="reload">&#49352;&#47196;&#44256;&#52840;</button>
   </div>
 
   <div id="info"></div>
   <div id="wrap"><canvas id="cv"></canvas></div>
   <div class="note">
     Lines show return since the start date (start = 0%). Gap = highest return minus lowest return (percentage points).
-    Idea: sell the highest, buy the lowest when the gap is wide. Wheel = zoom, drag = move, drag the line between panels = resize.
+    Idea: sell the highest, buy the lowest when the gap is wide. Wheel = zoom, drag = move, drag the line between panels = resize, double-click (Move tool) = fit all.
     Drawings are saved in this browser (price positions are in % from the start date). Experiment only, not investment advice.
   </div>
 </div>
@@ -127,6 +134,7 @@ const D = __DATA__;
 const NAMES = ["BTC","GOLD","NASDAQ","KOSPI"];
 const COL = {"BTC":"#f7931a","GOLD":"#f5c542","NASDAQ":"#4da3ff","KOSPI":"#c77dff"};
 const DAY = 864e5, AX = 92, AY = 24, GOLD = "#f2b84b", KEY = "div_draw_v1";
+const UP = "#e5484d", DOWN = "#3b82f6";
 const T = D.dates.map(function(s){ return Date.parse(s + "T00:00:00Z"); });
 const n = T.length;
 const $ = function(i){ return document.getElementById(i); };
@@ -134,35 +142,12 @@ const cv = $("cv"), ctx = cv.getContext("2d"), wrap = $("wrap");
 
 let W = 0, H = 0, pw = 0, dpr = 1, plotH = 0, H1 = 0, H2 = 0, fr = 0.68;
 let left = 0, barW = 2, yMin = 0, yMax = 1, g2Max = 1, manual = false, mMin = 0, mMax = 1;
-let mouse = null, pan = null, axisDrag = null, divDrag = null, tool = "none", draft = null, drawings = [];
+let mouse = null, pan = null, axisDrag = null, divDrag = null, tool = "none", draft = null, meas = null, drawings = [];
 let s0 = 0, ret = {}, gap = [], hiN = [], loN = [];
 const vis = {GOLD: true, NASDAQ: true, KOSPI: true};
 
 function active(){ return NAMES.filter(function(k){ return k === "BTC" || vis[k]; }); }
 function fp(v){ return (v >= 0 ? "+" : "") + v.toFixed(1) + "%"; }
-
-function parseStart(txt){
-  txt = txt.trim().toLowerCase().replace(/\s+/g, "");
-  const lastT = T[n-1];
-  let target;
-  const m = txt.match(/^-?(\d+)(d|w|m|y)$/);
-  if(m){
-    const k = parseInt(m[1], 10);
-    if(m[2] === "d") target = lastT - k * DAY;
-    else if(m[2] === "w") target = lastT - k * 7 * DAY;
-    else {
-      const d = new Date(lastT);
-      if(m[2] === "m") d.setUTCMonth(d.getUTCMonth() - k); else d.setUTCFullYear(d.getUTCFullYear() - k);
-      target = d.getTime();
-    }
-  } else if(/^\d{4}-\d{2}-\d{2}$/.test(txt)){
-    target = Date.parse(txt + "T00:00:00Z");
-    if(isNaN(target)) return null;
-  } else return null;
-  let i = 0;
-  while(i < n - 1 && T[i] < target) i++;
-  return Math.min(i, n - 2);
-}
 
 function compute(){
   const act = active();
@@ -261,6 +246,32 @@ function drawShape(d, isDraft){
   }
   ctx.setLineDash([]); ctx.lineWidth = 1;
 }
+function drawMeasure(){
+  if(!meas) return;
+  const x1 = px(meas.t1), y1 = yOf(meas.p1), x2 = px(meas.t2), y2 = yOf(meas.p2);
+  const diff = meas.p2 - meas.p1, up = diff >= 0, col = up ? UP : DOWN;
+  const nb = Math.abs(Math.round(tToI(meas.t2) - tToI(meas.t1)));
+  const days = Math.round(Math.abs(meas.t2 - meas.t1) / DAY);
+  ctx.setLineDash([]);
+  ctx.fillStyle = up ? "rgba(229,72,77,0.14)" : "rgba(59,130,246,0.14)";
+  ctx.fillRect(Math.min(x1,x2), Math.min(y1,y2), Math.abs(x2-x1), Math.abs(y2-y1));
+  ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  ctx.beginPath();
+  ctx.moveTo(x2, y2); ctx.lineTo(x2 - 9 * Math.cos(ang - 0.45), y2 - 9 * Math.sin(ang - 0.45));
+  ctx.moveTo(x2, y2); ctx.lineTo(x2 - 9 * Math.cos(ang + 0.45), y2 - 9 * Math.sin(ang + 0.45));
+  ctx.stroke();
+  const sg = up ? "+" : "\u2212";
+  const l1 = sg + Math.abs(diff).toFixed(1) + "pp", l2 = nb + " bars / " + days + " days";
+  ctx.font = "bold 12px sans-serif"; ctx.textAlign = "left";
+  const bw2 = Math.max(ctx.measureText(l1).width, ctx.measureText(l2).width) + 16, bh = 38;
+  let bx = (x1 + x2) / 2 - bw2 / 2, by = up ? Math.min(y1, y2) - bh - 6 : Math.max(y1, y2) + 6;
+  bx = Math.max(2, Math.min(pw - bw2 - 2, bx)); by = Math.max(2, Math.min(H1 - bh - 2, by));
+  ctx.fillStyle = col; ctx.fillRect(bx, by, bw2, bh);
+  ctx.fillStyle = "#ffffff"; ctx.fillText(l1, bx + 8, by + 16); ctx.fillText(l2, bx + 8, by + 31);
+  ctx.lineWidth = 1;
+}
 
 function draw(){
   ctx.clearRect(0, 0, W, H);
@@ -293,6 +304,7 @@ function draw(){
   plotSeries(ret.BTC, COL.BTC, 2.8, yOf, a2, z2);
   drawings.forEach(function(d){ drawShape(d, false); });
   if(draft) drawShape(draft, true);
+  drawMeasure();
   ctx.restore();
 
   ctx.fillStyle = "#8793a6"; ctx.font = "11px sans-serif"; ctx.textAlign = "left";
@@ -405,6 +417,7 @@ cv.addEventListener("pointerdown", function(e){
   if(tool === "none" || !inTop){ pan = {x: p.x, y: p.y, left: left, min: mMin, max: mMax, top: p.y < H1}; return; }
   if(tool === "h"){ drawings.push({k: "h", p: pOf(p.y)}); save(); draw(); }
   else if(tool === "v"){ drawings.push({k: "v", t: iToT(Math.round(iOf(p.x)))}); save(); draw(); }
+  else if(tool === "m"){ const tm = iToT(Math.round(iOf(p.x))), pm = pOf(p.y); meas = {t1: tm, p1: pm, t2: tm, p2: pm, live: true}; }
   else { const t0 = iToT(iOf(p.x)), p0 = pOf(p.y); draft = {k: tool, t1: t0, p1: p0, t2: t0, p2: p0}; }
 });
 cv.addEventListener("pointermove", function(e){
@@ -414,15 +427,20 @@ cv.addEventListener("pointermove", function(e){
     const f = Math.exp((p.y - axisDrag.y) * 0.006), c = (axisDrag.min + axisDrag.max) / 2;
     mMin = c - (c - axisDrag.min) * f; mMax = c + (axisDrag.max - c) * f; draw(); return;
   }
-  if(!pan && !draft){ cv.style.cursor = (nearDiv(p) || (p.x >= pw && p.y < H1)) ? "ns-resize" : (tool === "none" ? "grab" : "crosshair"); }
+  if(!pan && !draft && !meas){ cv.style.cursor = (nearDiv(p) || (p.x >= pw && p.y < H1)) ? "ns-resize" : (tool === "none" ? "grab" : "crosshair"); }
   if(pan){
     left = pan.left - (p.x - pan.x) / barW;
     if(manual && pan.top){ const dp = (p.y - pan.y) / H1 * (pan.max - pan.min); mMin = pan.min + dp; mMax = pan.max + dp; }
   } else if(draft){ draft.t2 = iToT(iOf(p.x)); draft.p2 = pOf(p.y); }
+  else if(meas && meas.live){ meas.t2 = iToT(Math.round(iOf(p.x))); meas.p2 = pOf(p.y); }
   draw();
 });
 function endPointer(){
   divDrag = null; axisDrag = null; pan = null;
+  if(meas && meas.live){
+    meas.live = false;
+    if(Math.abs(px(meas.t2) - px(meas.t1)) + Math.abs(yOf(meas.p2) - yOf(meas.p1)) < 4) meas = null;
+  }
   if(draft){
     const d = draft; draft = null;
     if(Math.abs(px(d.t2) - px(d.t1)) + Math.abs(yOf(d.p2) - yOf(d.p1)) > 4){ drawings.push(d); save(); }
@@ -432,9 +450,13 @@ function endPointer(){
 cv.addEventListener("pointerup", endPointer);
 cv.addEventListener("pointercancel", endPointer);
 cv.addEventListener("pointerleave", function(e){
-  if(e.pointerType === "mouse" && !pan && !draft && !axisDrag && !divDrag){ mouse = null; draw(); }
+  if(e.pointerType === "mouse" && !pan && !draft && !meas && !axisDrag && !divDrag){ mouse = null; draw(); }
 });
-cv.addEventListener("dblclick", function(e){ const p = pos(e); if(p.x >= pw && p.y < H1){ manual = false; draw(); } });
+cv.addEventListener("dblclick", function(e){
+  const p = pos(e);
+  if(p.x >= pw && p.y < H1){ manual = false; draw(); }
+  else if(tool === "none" && p.x < pw && p.y < plotH && !nearDiv(p)){ fit(); draw(); }
+});
 cv.addEventListener("wheel", function(e){
   e.preventDefault();
   const p = pos(e);
@@ -454,12 +476,12 @@ document.querySelectorAll("[data-tool]").forEach(function(btn){
   btn.addEventListener("click", function(){
     tool = btn.getAttribute("data-tool");
     document.querySelectorAll("[data-tool]").forEach(function(b){ b.classList.toggle("on", b === btn); });
-    cv.style.cursor = tool === "none" ? "grab" : "crosshair"; draft = null; draw();
+    cv.style.cursor = tool === "none" ? "grab" : "crosshair"; draft = null; meas = null; draw();
   });
 });
 $("undo").onclick = function(){ drawings.pop(); save(); draw(); };
 $("clear").onclick = function(){ if(drawings.length && confirm("Delete all drawings?")){ drawings = []; save(); draw(); } };
-$("fit").onclick = function(){ fit(); draw(); };
+$("reload").onclick = function(){ location.reload(); };
 
 (function(){
   const m = Math.floor((T[n-1] - T[0]) / DAY) - 1;
@@ -475,6 +497,7 @@ function applyStart(){
   let i = 0;
   while(i < n - 1 && T[i] < target) i++;
   s0 = Math.min(i, n - 2);
+  meas = null;
   const si = $("startInfo");
   si.style.color = "#9aa4b5";
   si.textContent = "from " + D.dates[s0] + " (" + (n - 1 - s0) + " rows)";
@@ -482,11 +505,13 @@ function applyStart(){
 }
 $("startr").addEventListener("input", function(){ $("start").value = $("startr").value; applyStart(); });
 $("start").addEventListener("change", applyStart);
+
 ["GOLD","NASDAQ","KOSPI"].forEach(function(k){
   const b = document.createElement("button");
   b.textContent = k; b.className = "on";
   b.addEventListener("click", function(){
-    if(vis[k] && !(vis.GOLD && vis.NASDAQ && vis.KOSPI ? true : (["GOLD","NASDAQ","KOSPI"].filter(function(x){ return vis[x]; }).length > 1))) return;
+    const cnt = ["GOLD","NASDAQ","KOSPI"].filter(function(x){ return vis[x]; }).length;
+    if(vis[k] && cnt <= 1) return;
     vis[k] = !vis[k]; b.className = vis[k] ? "on" : "";
     compute(); draw();
   });
