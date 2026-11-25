@@ -124,6 +124,7 @@ const D = __DATA__;
 const ASSETS = ["GOLD","SILVER","NASDAQ","S&P500","KOSPI"];
 const COLORS = {"GOLD":"#f5c542","SILVER":"#b0b8c4","NASDAQ":"#4da3ff","S&P500":"#ff8c42","KOSPI":"#c77dff"};
 const MIN_OBS = 60;
+const ZWIN = 504;
 const st = {asset:"ALL", scale:"log", metric:"z"};
 
 function calc(name, N, up, lo){
@@ -133,10 +134,13 @@ function calc(name, N, up, lo){
   const std = new Array(n).fill(null);
   const z = new Array(n).fill(null);
   const sigs = [];
-  let cnt = 0, sum = 0, sq = 0, last = 0;
+  let sum = 0, sq = 0, last = 0;
   for(let i = N; i < n; i++){
     const s = ((b[i]/b[i-N] - 1) - (a[i]/a[i-N] - 1)) * 100;
-    spread[i] = s; cnt++; sum += s; sq += s*s;
+    spread[i] = s; sum += s; sq += s*s;
+    const k = i - N + 1;
+    if(k > ZWIN){ const o = spread[i - ZWIN]; sum -= o; sq -= o*o; }
+    const cnt = Math.min(k, ZWIN);
     if(cnt >= MIN_OBS){
       const m = sum/cnt;
       const sd = Math.sqrt(Math.max(sq/cnt - m*m, 0));
